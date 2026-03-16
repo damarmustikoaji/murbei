@@ -165,27 +165,35 @@ function spawnAsync(cmd, args = [], options = {}) {
       env: { ...process.env, ...options.env }
     })
 
-    let stdout = ''
-    let stderr = ''
+    let stdout   = ''
+    let stderr   = ''
+    let settled  = false  // prevent double-resolve setelah timeout
 
     proc.stdout?.on('data', d => { stdout += d.toString() })
     proc.stderr?.on('data', d => { stderr += d.toString() })
 
     proc.on('close', exitCode => {
+      if (settled) return
+      settled = true
       logger.debug(`spawn exit ${exitCode}: ${cmd}`)
       resolve({ stdout: stdout.trim(), stderr: stderr.trim(), exitCode })
     })
 
     proc.on('error', err => {
+      if (settled) return
+      settled = true
       logger.error(`spawn error: ${cmd}`, { error: err.message })
       reject(err)
     })
 
-    // Timeout
+    // Timeout — resolve dengan exitCode -1, bukan reject, agar caller tidak crash
     if (options.timeout) {
       setTimeout(() => {
-        proc.kill()
-        reject(new Error(`Process timeout after ${options.timeout}ms: ${cmd}`))
+        if (settled) return
+        settled = true
+        try { proc.kill('SIGTERM') } catch {}
+        logger.warn(`spawn timeout (${options.timeout}ms): ${cmd}`)
+        resolve({ stdout: stdout.trim(), stderr: stderr.trim(), exitCode: -1, timedOut: true })
       }, options.timeout)
     }
   })

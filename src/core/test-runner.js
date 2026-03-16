@@ -114,48 +114,55 @@ class TestRunner extends EventEmitter {
   }
 
   async _spawnMaestro(maestroPath, yamlPath, config) {
+    // Build env dengan JAVA_HOME agar Maestro script bisa menemukan Java
+    const home    = os.homedir()
+    const javaEnv = this._buildJavaEnv()
+    const env     = {
+      ...process.env,
+      ...javaEnv,
+      ...config.envVars,
+      TERM:               'dumb',
+      // Pastikan PATH mencakup lokasi Maestro dan Java
+      PATH: [
+        path.join(home, '.testpilot', 'bin', 'maestro', 'bin'),
+        path.join(home, '.testpilot', 'bin'),
+        javaEnv.JAVA_HOME ? path.join(javaEnv.JAVA_HOME, 'bin') : '',
+        '/usr/local/bin',
+        '/opt/homebrew/bin',
+        '/usr/bin',
+        '/bin',
+        process.env.PATH || '',
+      ].filter(Boolean).join(':'),
+    }
+
     return new Promise((resolve, reject) => {
       const args = [
         '--device', config.serial,
         'test',
         yamlPath,
+        '--format', 'plain',   // output tanpa ANSI color codes
       ]
       if (config.noReset) args.push('--no-reset')
 
-      this._process = spawn(maestroPath, args, {
-        env: {
-          ...process.env,
-          // Inject env vars ke environment Maestro
-          ...config.envVars,
-          // Force color output
-          TERM: 'dumb',
-        }
-      })
+      this._process = spawn(maestroPath, args, { env })
 
-      let currentStep    = 0
-      let totalSteps     = 0
-      let lastStepStatus = 'idle'
+      let currentStep = 0
+      let injectErrorShown = false
 
-      // ── stdout parsing ─────────────────────────────────
+      // ── stdout ─────────────────────────────────────────
       this._process.stdout.on('data', (data) => {
-        const text = data.toString()
-        const lines = text.split('\n').filter(l => l.trim())
-
+        const lines = data.toString().split('\n').filter(l => l.trim())
         for (const line of lines) {
           logger.debug(`[maestro] ${line}`)
           const parsed = this._parseMaestroLine(line)
           this._emitLog(parsed.type, parsed.msg)
-
-          // Detect step events untuk update UI per-step
           if (parsed.stepIndex !== undefined) {
             currentStep = parsed.stepIndex
-            if (totalSteps < currentStep) totalSteps = currentStep
             this.emit('runner:stepUpdate', {
-              runId:       this._runId,
-              tcId:        config.tcId,
-              stepIndex:   currentStep,
-              stepStatus:  parsed.type === 'fail' ? 'fail' : 'running',
-              msg:         parsed.msg,
+              runId: this._runId, tcId: config.tcId,
+              stepIndex: currentStep,
+              stepStatus: parsed.type === 'fail' ? 'fail' : 'running',
+              msg: parsed.msg,
             })
           }
         }
@@ -164,8 +171,35 @@ class TestRunner extends EventEmitter {
       // ── stderr ─────────────────────────────────────────
       this._process.stderr.on('data', (data) => {
         const text = data.toString().trim()
-        if (text) {
-          logger.warn(`[maestro:stderr] ${text}`)
+        if (!text) return
+        logger.warn(`[maestro:stderr] ${text}`)
+
+        // Filter WARNING Java yang tidak relevan
+        const isJavaWarning = text.includes('WARNING:') && (
+          text.includes('java.lang.System') ||
+          text.includes('sun.misc.Unsafe') ||
+          text.includes('enable-native-access')
+        )
+        if (isJavaWarning) return  // skip, tidak ditampilkan ke user
+
+        // Deteksi error INJECT_EVENTS dan berikan pesan yang jelas
+        if (!injectErrorShown && text.includes('INJECT_EVENTS')) {
+          injectErrorShown = true
+          this._emitLog('fail',
+            '❌ Error: Maestro tidak bisa inject tap ke aplikasi ini.'
+          )
+          this._emitLog('warn',
+            '💡 Solusi: Jalankan "adb shell pm grant ' + (config.envVars?.APP_ID || '<packageName>') +
+            ' android.permission.INJECT_EVENTS" atau test dengan app debug build.'
+          )
+          this._emitLog('warn',
+            '   Atau install maestro-android driver: maestro download-driver'
+          )
+          return
+        }
+
+        // Error lain yang relevan
+        if (!text.includes('Config Field Required') && text.length < 500) {
           this._emitLog('warn', text)
         }
       })
@@ -182,17 +216,12 @@ class TestRunner extends EventEmitter {
         )
 
         this.emit('runner:finish', {
-          runId:   this._runId,
-          tcId:    config.tcId,
-          tcName:  config.tcName,
-          status,
-          exitCode,
+          runId: this._runId, tcId: config.tcId, tcName: config.tcName, status, exitCode,
         })
 
-        success ? resolve({ status, exitCode }) : reject(Object.assign(
-          new Error(`Test gagal: exit code ${exitCode}`),
-          { status: 'fail', exitCode }
-        ))
+        success
+          ? resolve({ status, exitCode })
+          : reject(Object.assign(new Error(`Test gagal: exit code ${exitCode}`), { status: 'fail', exitCode }))
       })
 
       this._process.on('error', (err) => {
@@ -201,6 +230,58 @@ class TestRunner extends EventEmitter {
         reject(err)
       })
     })
+  }
+
+  /**
+   * Bangun env dengan JAVA_HOME dari ~/.testpilot/java/ atau system Java
+   */
+  _buildJavaEnv() {
+    const home = os.homedir()
+    const env  = {}
+
+    // Cek ~/.testpilot/java/ dulu (downloaded by setup)
+    const javaBase = path.join(home, '.testpilot', 'java')
+    try {
+      const fs = require('fs')
+      if (fs.existsSync(javaBase)) {
+        const entries = fs.readdirSync(javaBase)
+        for (const entry of entries) {
+          const javaExe = path.join(javaBase, entry, 'bin', 'java')
+          if (fs.existsSync(javaExe)) {
+            env.JAVA_HOME = path.join(javaBase, entry)
+            logger.debug(`JAVA_HOME set: ${env.JAVA_HOME}`)
+            return env
+          }
+        }
+      }
+    } catch {}
+
+    // Cek system JAVA_HOME
+    if (process.env.JAVA_HOME) {
+      env.JAVA_HOME = process.env.JAVA_HOME
+      return env
+    }
+
+    // Coba detect dari `java -XshowSettings:property` — macOS
+    // System Java di macOS biasanya di /usr/bin/java → /Library/Java/...
+    const commonJavaHomes = [
+      '/Library/Java/JavaVirtualMachines',
+    ]
+    for (const base of commonJavaHomes) {
+      try {
+        const fs = require('fs')
+        if (fs.existsSync(base)) {
+          const entries = fs.readdirSync(base)
+          if (entries.length > 0) {
+            env.JAVA_HOME = path.join(base, entries[0], 'Contents', 'Home')
+            logger.debug(`JAVA_HOME detected: ${env.JAVA_HOME}`)
+            return env
+          }
+        }
+      } catch {}
+    }
+
+    return env  // kosong — pakai system PATH
   }
 
   /**

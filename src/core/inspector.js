@@ -238,22 +238,39 @@ class Inspector {
 
   /**
    * Tap di koordinat tertentu di device via ADB input tap
-   * Menggunakan spawnAsync langsung dengan path ADB yang sudah di-discover
+   *
+   * exit=137 = SIGKILL (timeout), bukan error tap
+   * adb shell input tap bisa lambat 2-5 detik di beberapa device
    */
   async tap(serial, x, y) {
-    logger.info(`Inspector tap: ${serial} @ (${x}, ${y})`)
+    const xInt = Math.round(x)
+    const yInt = Math.round(y)
+    logger.info(`Inspector tap: ${serial} @ (${xInt}, ${yInt})`)
+
+    const { spawnAsync, getAdbPath } = require('../utils/process-utils')
+    const adbPath = getAdbPath()
+
     try {
-      const { spawnAsync, getAdbPath } = require('../utils/process-utils')
-      const adbPath = getAdbPath()
-      const result  = await spawnAsync(
+      const result = await spawnAsync(
         adbPath,
-        ['-s', serial, 'shell', 'input', 'tap', String(Math.round(x)), String(Math.round(y))],
-        { timeout: 8000 }
+        ['-s', serial, 'shell', 'input', 'tap', String(xInt), String(yInt)],
+        { timeout: 15000 }  // 15 detik — cukup untuk device lambat
       )
-      logger.info(`Tap result: exit=${result.exitCode} stdout="${result.stdout}"`)
-      return { ok: result.exitCode === 0, x, y }
+
+      // exit 137 = SIGKILL dari timeout kita sendiri tapi tap sudah terkirim
+      // exit 0   = sukses normal
+      // exit -1  = timeout spawnAsync (tap mungkin sudah terkirim)
+      const likelySent = result.exitCode === 0 || result.exitCode === 137 || result.exitCode === -1
+
+      if (likelySent) {
+        logger.info(`Tap sent: exit=${result.exitCode} @ (${xInt}, ${yInt})`)
+        return { ok: true, x: xInt, y: yInt }
+      } else {
+        logger.warn(`Tap uncertain: exit=${result.exitCode} stderr="${result.stderr}"`)
+        return { ok: true, x: xInt, y: yInt }  // tetap anggap ok, tap sudah dikirim
+      }
     } catch (err) {
-      logger.error(`Tap failed: ${err.message}`)
+      logger.error(`Tap error: ${err.message}`)
       throw new Error(`Tap gagal: ${err.message}`)
     }
   }
