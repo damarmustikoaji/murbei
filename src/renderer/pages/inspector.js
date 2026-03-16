@@ -332,55 +332,109 @@ window.PageInspector = (() => {
       </div>`
 
     const el = _selectedEl
-    return `
-    <div style="padding:8px">
-      <div class="slbl mb6">Selector Tersedia</div>
-      ${(el.selectors||[]).map(s => `
-        <div style="padding:7px;background:var(--surface2);border-radius:7px;margin-bottom:5px">
-          <div class="flex ic jb mb4">
-            <span class="xs muted fw6">${esc(s.label)}</span>
-            ${s.stable ? '<span class="badge b-pass" style="font-size:9px">stabil</span>' : '<span class="badge b-pend" style="font-size:9px">rapuh</span>'}
-          </div>
-          <div class="flex ic g5">
-            <code class="mono xs" style="flex:1;background:var(--surface);padding:3px 7px;
-              border-radius:5px;border:1px solid var(--border);overflow:hidden;
-              text-overflow:ellipsis;white-space:nowrap;display:block">
-              ${esc(s.value)}
-            </code>
-            <button class="btn btn-xs btn-b" onclick="PageInspector.useSelector('${esc(s.value)}')">
-              Use
-            </button>
-            <button class="btn btn-xs btn-d" onclick="copyText('${esc(s.value)}')">
-              <i class="bi bi-copy"></i>
-            </button>
-          </div>
-        </div>`).join('')}
 
-      <div class="divider"></div>
-      <div class="slbl mb4">Properti Element</div>
-      <div style="font-size:10.5px;font-family:var(--font-mono)">
-        ${[
-          ['class',       el.class],
-          ['resource-id', el.resourceId],
-          ['text',        el.text],
-          ['content-desc',el.contentDesc],
-          ['clickable',   el.clickable],
-          ['scrollable',  el.scrollable],
-          ['bounds',      el.bounds ? `[${el.bounds.x},${el.bounds.y}][${el.bounds.x2},${el.bounds.y2}]` : ''],
-        ].filter(([,v]) => v !== '' && v !== undefined && v !== false)
-         .map(([k,v]) => `<div style="padding:2px 0;border-bottom:1px solid var(--border)">
-           <span style="color:var(--text3)">${esc(k)}:</span>
-           <span style="color:var(--green);margin-left:6px">${esc(String(v))}</span>
-         </div>`).join('')}
+    // Color + icon per selector type
+    const selectorMeta = {
+      'resource-id':  { color: '#2a9d5c', bg: '#f0faf5', border: 'rgba(42,157,92,.25)',  icon: 'bi-hash',          badge: 'stabil ⭐' },
+      'accessibility':{ color: '#3b7eed', bg: '#f0f6ff', border: 'rgba(59,126,237,.25)', icon: 'bi-universal-access', badge: 'stabil' },
+      'text':         { color: '#c47d0e', bg: '#fef9ec', border: 'rgba(196,125,14,.25)',  icon: 'bi-fonts',         badge: 'berubah' },
+      'xpath':        { color: '#8c8c87', bg: '#f3f3f0', border: 'rgba(140,140,135,.2)',  icon: 'bi-code-slash',    badge: 'rapuh' },
+    }
+
+    const selectors = el.selectors || []
+
+    return `
+    <div style="padding:8px 10px">
+
+      <!-- Selector list -->
+      <div style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px">
+        Selector Tersedia (${selectors.length})
       </div>
 
-      <div class="flex g6 mt8 wrap">
+      ${selectors.length === 0 ? `
+        <div style="background:var(--yellow-bg);border:1px solid rgba(196,125,14,.2);border-radius:7px;padding:9px 11px;font-size:11px;color:var(--text2);margin-bottom:10px">
+          <i class="bi bi-exclamation-triangle" style="color:var(--yellow)"></i>
+          Element ini tidak punya resource-id, content-desc, maupun text.
+          Kemungkinan hanya bisa diakses via XPath yang rapuh.
+        </div>` : ''}
+
+      ${selectors.map(s => {
+        const m = selectorMeta[s.type] || selectorMeta['xpath']
+        return `
+        <div style="border:1px solid ${m.border};background:${m.bg};border-radius:8px;padding:8px 10px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <i class="bi ${m.icon}" style="color:${m.color};font-size:12px"></i>
+              <span style="font-size:11px;font-weight:700;color:${m.color}">${esc(s.label)}</span>
+            </div>
+            <span style="font-size:9px;font-weight:600;padding:1px 6px;border-radius:3px;
+                         background:${m.color}20;color:${m.color}">${m.badge}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:5px">
+            <code style="flex:1;font-family:'Geist Mono',monospace;font-size:10px;
+                         background:rgba(0,0,0,.04);border:1px solid ${m.border};
+                         border-radius:5px;padding:4px 8px;overflow:hidden;
+                         text-overflow:ellipsis;white-space:nowrap;display:block;
+                         color:${m.color}">${esc(s.value)}</code>
+            <button class="btn btn-xs" style="background:${m.color};color:#fff;border:none;flex-shrink:0"
+              onclick="PageInspector.useSelector('${esc(s.value)}')">Use</button>
+            <button class="btn btn-xs btn-d" style="flex-shrink:0"
+              onclick="copyText('${esc(s.value)}')"><i class="bi bi-copy"></i></button>
+          </div>
+        </div>`
+      }).join('')}
+
+      <div style="height:1px;background:var(--border);margin:10px 0"></div>
+
+      <!-- Properties table — semua atribut ditampilkan, yang kosong dengan tanda — -->
+      <div style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">
+        Properti Element
+      </div>
+      <div style="border:1px solid var(--border);border-radius:7px;overflow:hidden;font-size:11px">
+        ${[
+          { k:'class',        v: el.class,       icon:'bi-grid',             always: true  },
+          { k:'resource-id',  v: el.resourceId,  icon:'bi-hash',             always: true  },
+          { k:'content-desc', v: el.contentDesc, icon:'bi-universal-access', always: true  },
+          { k:'text',         v: el.text,        icon:'bi-fonts',            always: true  },
+          { k:'package',      v: el.packageName, icon:'bi-box',              always: false },
+          { k:'clickable',    v: el.clickable  ? 'true' : null, icon:'bi-hand-index',     always: false },
+          { k:'scrollable',   v: el.scrollable ? 'true' : null, icon:'bi-arrow-down-up',  always: false },
+          { k:'focusable',    v: el.focusable  ? 'true' : null, icon:'bi-cursor',         always: false },
+          { k:'checked',      v: el.checked    ? 'true' : null, icon:'bi-check2-square',  always: false },
+          { k:'bounds',       v: el.bounds ? `[${el.bounds.x},${el.bounds.y}][${el.bounds.x2},${el.bounds.y2}]` : null,
+                                                 icon:'bi-bounding-box',     always: true  },
+        ]
+        .filter(row => row.always || (row.v && row.v !== ''))
+        .map((row, i, arr) => {
+          const hasVal = row.v && row.v !== ''
+          const borderB = i < arr.length - 1 ? 'border-bottom:1px solid var(--border);' : ''
+          return `
+          <div style="display:flex;align-items:baseline;gap:0;${borderB}">
+            <div style="width:115px;flex-shrink:0;padding:5px 9px;background:var(--surface2);
+                        display:flex;align-items:center;gap:5px;border-right:1px solid var(--border);
+                        align-self:stretch">
+              <i class="bi ${row.icon}" style="font-size:10px;color:var(--text3);flex-shrink:0"></i>
+              <span style="font-family:'Geist Mono',monospace;color:var(--text3);font-size:9.5px;
+                           overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(row.k)}</span>
+            </div>
+            <div style="flex:1;padding:5px 9px;font-family:'Geist Mono',monospace;
+                        font-size:10px;word-break:break-all;
+                        color:${hasVal ? 'var(--green)' : 'var(--text3)'}">
+              ${hasVal ? esc(row.v) : '<span style="opacity:.4">—</span>'}
+            </div>
+          </div>`
+        }).join('')}
+      </div>
+
+      <!-- Action buttons -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
         <button class="btn btn-d btn-sm" onclick="PageInspector.tapSelected()">
           <i class="bi bi-hand-index-thumb"></i> Tap di Device
         </button>
-        <button class="btn btn-d btn-sm" onclick="PageInspector.useSelector('${esc(el.selectors?.[0]?.value||'')}')">
+        ${selectors[0] ? `
+        <button class="btn btn-b btn-sm" onclick="PageInspector.useSelector('${esc(selectors[0].value)}')">
           <i class="bi bi-plus-lg"></i> Tambah ke Steps
-        </button>
+        </button>` : ''}
       </div>
     </div>`
   }
@@ -482,7 +536,6 @@ window.PageInspector = (() => {
     const overlay = document.getElementById('screen-overlay')
     if (!overlay) return
 
-    // Refresh dimensi sebelum render highlight
     _updateImgDimensions()
 
     if (!_elements.length || !_imgW || !_imgH) {
@@ -490,20 +543,19 @@ window.PageInspector = (() => {
       return
     }
 
-    // Scale factor: pixel device → pixel UI
     const scaleX = _imgW  / _screenW
     const scaleY = _imgH  / _screenH
 
-    // Aktifkan pointer events di overlay container (untuk klik/hover box)
     overlay.style.pointerEvents = 'auto'
     overlay.innerHTML = ''
 
     _elements.forEach(el => {
       if (!el.bounds) return
       const { x, y, width, height } = el.bounds
-
-      // Skip elemen yang bounds-nya di luar layar atau terlalu kecil
       if (width < 2 || height < 2) return
+
+      const isSelected = _selectedEl?.id === el.id
+      const isHovered  = _hoveredId      === el.id
 
       const box        = document.createElement('div')
       box.className    = 'hl-box'
@@ -515,6 +567,43 @@ window.PageInspector = (() => {
       box.style.pointerEvents = 'auto'
       box.dataset.elId = el.id
 
+      if (isSelected) {
+        box.classList.add('selected')
+        // Label kecil di pojok kiri atas box selected
+        const label = document.createElement('div')
+        const shortClass = (el.class || '').split('.').pop()
+        const labelText  = el.resourceId
+          ? el.resourceId.split('/').pop()  // ambil bagian setelah ":"
+          : el.text || shortClass || ''
+        label.textContent = labelText.substring(0, 24)
+        label.style.cssText = `
+          position:absolute; top:-18px; left:0;
+          background:rgba(229,77,46,.9); color:#fff;
+          font-size:9px; font-family:monospace;
+          padding:1px 5px; border-radius:3px;
+          white-space:nowrap; pointer-events:none;
+          max-width:140px; overflow:hidden; text-overflow:ellipsis;
+          z-index:11; line-height:16px;`
+        box.appendChild(label)
+      } else if (isHovered) {
+        box.classList.add('hovered')
+        // Label tipis saat hover
+        const label = document.createElement('div')
+        const shortClass = (el.class || '').split('.').pop()
+        const labelText  = el.text || el.resourceId?.split('/').pop() || shortClass || ''
+        label.textContent = labelText.substring(0, 24)
+        label.style.cssText = `
+          position:absolute; top:-16px; left:0;
+          background:rgba(42,157,92,.85); color:#fff;
+          font-size:9px; font-family:monospace;
+          padding:1px 5px; border-radius:3px;
+          white-space:nowrap; pointer-events:none;
+          max-width:120px; overflow:hidden; text-overflow:ellipsis;
+          z-index:6; line-height:15px;`
+        box.appendChild(label)
+      }
+      // else: box transparan — hanya ada sebagai hit area untuk hover/click
+
       box.addEventListener('mouseenter', () => hoverElement(el.id))
       box.addEventListener('mouseleave', () => unhoverElement())
       box.addEventListener('click', (e) => {
@@ -522,20 +611,13 @@ window.PageInspector = (() => {
         selectElement(el.id)
       })
 
-      if (_selectedEl?.id === el.id) box.classList.add('selected')
-      else if (_hoveredId === el.id) box.classList.add('hovered')
-
       overlay.appendChild(box)
     })
   }
 
   function updateHighlightStates() {
-    document.querySelectorAll('.hl-box').forEach(box => {
-      const id = box.dataset.elId
-      box.classList.remove('selected', 'hovered')
-      if (_selectedEl?.id === id) box.classList.add('selected')
-      else if (_hoveredId === id) box.classList.add('hovered')
-    })
+    // Re-render seluruh overlay agar label selected/hovered ikut terupdate
+    renderHighlights()
   }
 
   // ── Screen interaction ─────────────────────────────────────
@@ -1022,6 +1104,14 @@ window.PageInspector = (() => {
   function refreshLeftTab() {
     const body = document.getElementById('left-tab-body')
     if (body) body.innerHTML = renderLeftTab()
+    // Sync tab active indicator
+    document.querySelectorAll('.insp-L .tab').forEach(t => {
+      const tabName = t.textContent.trim().toLowerCase()
+      const isActive = (_leftTab === 'xml'    && tabName.includes('xml'))
+                    || (_leftTab === 'detail' && tabName.includes('detail'))
+                    || (_leftTab === 'debug'  && tabName.includes('debug'))
+      t.classList.toggle('active', isActive)
+    })
   }
 
   // ── Debug log ──────────────────────────────────────────────

@@ -97,65 +97,55 @@ class Inspector {
    * Menggunakan regex-based parser (tidak butuh xmldom dependency)
    */
   _parseXmlToTree(xmlContent) {
-    const elements = []
     let idCounter = 0
 
-    // Regex untuk extract node attributes dari XML UIAutomator
-    const nodeRegex = /<node([^>]*)\/?>(?:(?!<\/node>).|\n)*?(?:<\/node>)?/g
-    const attrRegex = /(\w+)="([^"]*)"/g
+    // ── Regex ──────────────────────────────────────────────────
+    // Capture setiap <node ...> tag (self-closing atau tidak)
+    // PENTING: atribut UIAutomator punya nama dengan tanda minus
+    //   resource-id, content-desc, long-clickable, dll
+    //   [\w-]+ menangkap semua itu; \w+ saja gagal untuk resource-id
+    const nodeRegex = /<node\s([^>]*?)(?:\/>|>)/g
+    const attrRegex = /([\w-]+)="([^"]*)"/g
 
-    // Flat parse semua node
     const allNodes = []
     let match
     while ((match = nodeRegex.exec(xmlContent)) !== null) {
       const attrStr = match[1]
-      const attrs = {}
+      const attrs   = {}
+      attrRegex.lastIndex = 0   // WAJIB reset karena reuse regex object
       let attrMatch
       while ((attrMatch = attrRegex.exec(attrStr)) !== null) {
         attrs[attrMatch[1]] = attrMatch[2]
       }
-      if (Object.keys(attrs).length > 0) {
-        allNodes.push(attrs)
-      }
+      // Ambil semua node yang punya class (semua widget punya class)
+      if (attrs.class) allNodes.push(attrs)
     }
 
-    // Convert flat list ke hierarchical berdasarkan bounds depth
-    // (UIAutomator XML sudah berurutan depth-first)
-    const buildTree = (nodes, depth = 0) => {
-      return nodes
-        .filter(n => n && (n['resource-id'] || n['text'] || n['content-desc'] || n['class']))
-        .map(n => {
-          const bounds = this._parseBounds(n.bounds)
-          const id = `el-${idCounter++}`
+    return allNodes
+      .map(n => {
+        const bounds = this._parseBounds(n.bounds)
+        if (!bounds) return null
 
-          // Generate selectors yang bisa dipakai di test
-          const selectors = this._generateSelectors(n)
-
-          return {
-            id,
-            class:        n.class || '',
-            text:         n.text || '',
-            resourceId:   n['resource-id'] || '',
-            contentDesc:  n['content-desc'] || '',
-            packageName:  n.package || '',
-            clickable:    n.clickable === 'true',
-            scrollable:   n.scrollable === 'true',
-            enabled:      n.enabled !== 'false',
-            bounds,
-            selectors,
-            // Untuk highlight overlay di screenshot
-            highlight: bounds ? {
-              x:      bounds.x,
-              y:      bounds.y,
-              width:  bounds.width,
-              height: bounds.height,
-            } : null,
-          }
-        })
-        .filter(el => el.highlight)  // filter element tanpa bounds
-    }
-
-    return buildTree(allNodes)
+        const selectors = this._generateSelectors(n)
+        return {
+          id:          `el-${idCounter++}`,
+          class:       n.class       || '',
+          text:        n.text        || '',
+          resourceId:  n['resource-id']   || '',
+          contentDesc: n['content-desc']  || '',
+          packageName: n.package     || '',
+          clickable:   n.clickable   === 'true',
+          scrollable:  n.scrollable  === 'true',
+          focusable:   n.focusable   === 'true',
+          enabled:     n.enabled     !== 'false',
+          checked:     n.checked     === 'true',
+          bounds,
+          selectors,
+          // alias untuk renderHighlights
+          highlight: bounds,
+        }
+      })
+      .filter(Boolean)
   }
 
   /**
@@ -183,52 +173,61 @@ class Inspector {
    */
   _generateSelectors(attrs) {
     const selectors = []
+    const rid       = attrs['resource-id'] || ''
+    const cdesc     = attrs['content-desc'] || ''
+    const text      = attrs.text || ''
+    const cls       = attrs.class || ''
+    const classShort = cls.split('.').pop() || ''
 
-    // resource-id (paling stabil)
-    if (attrs['resource-id']) {
+    // 1. resource-id — paling stabil, tidak berubah dengan bahasa/data
+    if (rid) {
+      // Format Maestro: id/<full-resource-id>
       selectors.push({
-        type:     'resource-id',
-        value:    `id/${attrs['resource-id']}`,
-        label:    'Resource ID',
-        priority: 1,
-        stable:   true,
+        type:   'resource-id',
+        value:  `id/${rid}`,
+        label:  'Resource ID',
+        stable: true,
       })
     }
 
-    // accessibility / content-desc
-    if (attrs['content-desc']) {
+    // 2. accessibility / content-desc
+    if (cdesc) {
       selectors.push({
-        type:     'accessibility',
-        value:    `acc/${attrs['content-desc']}`,
-        label:    'Accessibility',
-        priority: 2,
-        stable:   true,
+        type:   'accessibility',
+        value:  `acc/${cdesc}`,
+        label:  'Accessibility',
+        stable: true,
       })
     }
 
-    // text (hanya kalau text tidak kosong dan pendek)
-    if (attrs.text && attrs.text.length < 50) {
+    // 3. text — hanya kalau tidak kosong dan wajar panjangnya
+    if (text && text.length > 0 && text.length < 80) {
       selectors.push({
-        type:     'text',
-        value:    `text/${attrs.text}`,
-        label:    'Text',
-        priority: 3,
-        stable:   false,  // text bisa berubah dengan locale/data
+        type:   'text',
+        value:  `text/${text}`,
+        label:  'Text',
+        stable: false,  // bisa berubah dengan locale / dinamis
       })
     }
 
-    // xpath sebagai fallback
-    const classShort = (attrs.class || '').split('.').pop()
+    // 4. xpath — lebih spesifik jika ada resource-id
     if (classShort) {
-      const xpath = attrs['resource-id']
-        ? `xpath///android.widget.${classShort}[@resource-id="${attrs['resource-id']}"]`
-        : `xpath///android.widget.${classShort}`
+      const fullClass = cls  // e.g. android.widget.Button
+      let xpathExpr
+      if (rid) {
+        xpathExpr = `xpath///${fullClass}[@resource-id="${rid}"]`
+      } else if (cdesc) {
+        xpathExpr = `xpath///${fullClass}[@content-desc="${cdesc}"]`
+      } else if (text) {
+        xpathExpr = `xpath///${fullClass}[@text="${text}"]`
+      } else {
+        xpathExpr = `xpath///${fullClass}`
+      }
       selectors.push({
-        type:     'xpath',
-        value:    xpath,
-        label:    'XPath',
-        priority: 4,
-        stable:   false,  // xpath rapuh terhadap perubahan layout
+        type:   'xpath',
+        value:  xpathExpr,
+        label:  'XPath',
+        stable: false,
       })
     }
 
