@@ -73,54 +73,27 @@
           break
 
         case 'tap':
-          if (selectorObj.type === 'id') {
-            lines.push(`- tapOn:`)
-            lines.push(`    id: "${selectorObj.value}"`)
-          } else if (selectorObj.type === 'text') {
-            lines.push(`- tapOn: "${selectorObj.value}"`)
-          } else if (selectorObj.type === 'acc') {
-            lines.push(`- tapOn:`)
-            lines.push(`    accessibilityLabel: "${selectorObj.value}"`)
-          } else {
-            lines.push(`- tapOn: "${sel}"`)
-          }
+          lines.push.apply(lines, _makeTapOn(selectorObj, sel))
           break
 
         case 'longPress':
-          if (selectorObj.type === 'id') {
-            lines.push(`- longPressOn:`)
-            lines.push(`    id: "${selectorObj.value}"`)
-          } else {
-            lines.push(`- longPressOn: "${sel}"`)
-          }
+          lines.push.apply(lines, _makeLongPressOn(selectorObj, sel))
           break
 
         case 'input':
-          // inputText harus didahului tapOn untuk fokus field dulu
-          if (sel) {
-            if (selectorObj.type === 'id') {
-              lines.push(`- tapOn:`)
-              lines.push(`    id: "${selectorObj.value}"`)
-            } else {
-              lines.push(`- tapOn: "${sel}"`)
-            }
-          }
-          lines.push(`- inputText: "${value}"`)
+          // Fokus dulu ke field, lalu input teks
+          if (sel) lines.push.apply(lines, _makeTapOn(selectorObj, sel))
+          lines.push(`- inputText: "${_escYaml(value)}"`)
           break
 
         case 'clearText':
-          if (selectorObj.type === 'id') {
-            lines.push(`- tapOn:`)
-            lines.push(`    id: "${selectorObj.value}"`)
-          } else if (sel) {
-            lines.push(`- tapOn: "${sel}"`)
-          }
+          if (sel) lines.push.apply(lines, _makeTapOn(selectorObj, sel))
           lines.push(`- clearText`)
           break
 
         case 'swipe':
           lines.push(`- swipe:`)
-          lines.push(`    direction: ${p.direction || 'UP'}`)
+          lines.push(`    direction: ${(p.direction || 'UP').toUpperCase()}`)
           break
 
         case 'scroll':
@@ -128,15 +101,23 @@
           break
 
         case 'assertText':
-          lines.push(`- assertVisible: "${p.expected || value}"`)
+          lines.push(`- assertVisible:`)
+          lines.push(`    text: "${_escYaml(p.expected || value)}"`)
           break
 
         case 'assertVisible':
           if (selectorObj.type === 'id') {
             lines.push(`- assertVisible:`)
             lines.push(`    id: "${selectorObj.value}"`)
+          } else if (selectorObj.type === 'text') {
+            lines.push(`- assertVisible:`)
+            lines.push(`    text: "${_escYaml(selectorObj.value)}"`)
+          } else if (selectorObj.type === 'acc') {
+            lines.push(`- assertVisible:`)
+            lines.push(`    text: "${_escYaml(selectorObj.value)}"`)
           } else {
-            lines.push(`- assertVisible: "${sel}"`)
+            lines.push(`- assertVisible:`)
+            lines.push(`    text: "${_escYaml(sel)}"`)
           }
           break
 
@@ -145,13 +126,14 @@
             lines.push(`- assertNotVisible:`)
             lines.push(`    id: "${selectorObj.value}"`)
           } else {
-            lines.push(`- assertNotVisible: "${sel}"`)
+            lines.push(`- assertNotVisible:`)
+            lines.push(`    text: "${_escYaml(sel)}"`)
           }
           break
 
         case 'wait':
           lines.push(`- waitForAnimationToEnd:`)
-          lines.push(`    timeout: ${p.ms || 1000}`)
+          lines.push(`    timeout: ${p.ms || 2000}`)
           break
 
         case 'back':
@@ -175,27 +157,59 @@
    * Input: "id/com.pkg:id/view_name" atau "text/Hello" atau "acc/description"
    */
   function _parseSelectorToMaestro(selector) {
-    if (!selector) return { type: 'raw', value: selector }
+    if (!selector) return { type: 'raw', value: '' }
 
     if (selector.startsWith('id/')) {
-      // "id/com.socialnmobile.dictapps.notepad.color.note:id/page_more"
-      // Maestro butuh hanya bagian setelah ":id/" atau full string
-      const raw = selector.replace('id/', '')
-      // Ambil bagian terakhir setelah ':id/'
+      const raw   = selector.slice(3)          // hapus "id/"
       const parts = raw.split(':id/')
       const shortId = parts.length > 1 ? parts[parts.length - 1] : raw
       return { type: 'id', value: shortId, full: raw }
     }
     if (selector.startsWith('text/')) {
-      return { type: 'text', value: selector.replace('text/', '') }
+      return { type: 'text', value: selector.slice(5) }
     }
     if (selector.startsWith('acc/')) {
-      return { type: 'acc', value: selector.replace('acc/', '') }
+      // acc = content-desc di Android. Maestro Android: pakai text: atau jadi string tapOn
+      return { type: 'acc', value: selector.slice(4) }
     }
     if (selector.startsWith('xpath/')) {
-      return { type: 'xpath', value: selector.replace('xpath/', '') }
+      return { type: 'xpath', value: selector.slice(6) }
     }
     return { type: 'raw', value: selector }
+  }
+
+  /**
+   * Buat baris tapOn yang benar untuk Maestro Android
+   * Maestro Android tidak kenal accessibilityLabel (itu iOS)
+   * Referensi: https://docs.maestro.dev/api-reference/commands/tapon
+   */
+  function _makeTapOn(sel, raw) {
+    if (sel.type === 'id') {
+      return [`- tapOn:`, `    id: "${sel.value}"`]
+    }
+    if (sel.type === 'text') {
+      return [`- tapOn:`, `    text: "${_escYaml(sel.value)}"`]
+    }
+    if (sel.type === 'acc') {
+      // content-desc di Android → Maestro pakai text: (Maestro search text + content-desc)
+      return [`- tapOn:`, `    text: "${_escYaml(sel.value)}"`]
+    }
+    if (sel.type === 'xpath') {
+      return [`- tapOn:`, `    text: "${_escYaml(sel.value)}"`]
+    }
+    // raw / fallback: short string → langsung sebagai text
+    const v = sel.value || raw || ''
+    return v ? [`- tapOn: "${_escYaml(v)}"`] : [`# tapOn: (selector kosong)`]
+  }
+
+  function _makeLongPressOn(sel, raw) {
+    const tapLines = _makeTapOn(sel, raw)
+    return tapLines.map(l => l.replace(/^- tapOn/, '- longPressOn'))
+  }
+
+  /** Escape string untuk YAML value — escape double quotes */
+  function _escYaml(str) {
+    return String(str || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
   }
 
   // ── Colorize DSL for display ───────────────────────────────

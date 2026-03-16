@@ -478,9 +478,6 @@ window.PageInspector = (() => {
 
       <!-- Action buttons -->
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
-        <button class="btn btn-d btn-sm" onclick="PageInspector.tapSelected()">
-          <i class="bi bi-hand-index-thumb"></i> Tap di Device
-        </button>
         ${selectors[0] ? `
         <button class="btn btn-b btn-sm" onclick="PageInspector.useSelector('${esc(selectors[0].value)}')">
           <i class="bi bi-plus-lg"></i> Tambah ke Steps
