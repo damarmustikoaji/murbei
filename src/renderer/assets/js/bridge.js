@@ -1,12 +1,9 @@
 /**
  * bridge.js — Renderer-side API wrapper
  *
- * Wraps window.testpilot (exposed by preload.js) dengan:
- * - Error normalization (__error pattern dari IPC)
- * - Fallback untuk development di browser biasa
- * - Convenience methods
- *
- * Semua page scripts menggunakan window.api.xxx
+ * PENTING: tp.inspector.tap dll adalah functions dari preload contextBridge.
+ * Mereka TIDAK butuh 'this' context karena contextBridge expose plain functions,
+ * tapi kita tetap pastikan dengan arrow wrapper eksplisit per method.
  */
 ;(function() {
   'use strict'
@@ -17,7 +14,7 @@
     console.warn('[bridge] window.testpilot not available — running outside Electron?')
   }
 
-  // Normalize IPC response — IPC handler return {__error, message} untuk errors
+  // Normalize IPC response
   function checkError(result) {
     if (result && result.__error) {
       throw new Error(result.message || 'Unknown IPC error')
@@ -25,96 +22,95 @@
     return result
   }
 
-  // Wrap async IPC call dengan error check
-  function ipc(fn) {
-    return async (...args) => {
+  // Wrap dengan error check — gunakan arrow wrapper agar args diteruskan dengan benar
+  function w(fn) {
+    return async function() {
       if (!tp) return null
-      const result = await fn(...args)
+      const result = await fn.apply(null, arguments)
       return checkError(result)
     }
   }
 
-  // Noop fallback
-  const noop     = async () => null
-  const noopArr  = async () => []
+  const noop    = async function() { return null }
+  const noopArr = async function() { return []   }
 
   window.api = {
     // ── Setup
     setup: {
-      checkDeps:   tp ? ipc(tp.setup.checkDeps)  : noop,
-      install:     tp ? ipc(tp.setup.install)     : noop,
-      fixMaestro:  tp ? ipc(tp.setup.fixMaestro)  : noop,
-      onProgress:  tp ? (cb) => tp.setup.onProgress(cb) : (cb) => {},
+      checkDeps:   tp ? w(function()    { return tp.setup.checkDeps() })       : noop,
+      install:     tp ? w(function(s)   { return tp.setup.install(s) })        : noop,
+      fixMaestro:  tp ? w(function()    { return tp.setup.fixMaestro() })      : noop,
+      onProgress:  tp ? function(cb)    { return tp.setup.onProgress(cb) }     : function() {},
     },
 
     // ── Device
     device: {
-      list:         tp ? ipc(tp.device.list)         : noopArr,
-      connect:      tp ? ipc(tp.device.connect)      : noop,
-      disconnect:   tp ? ipc(tp.device.disconnect)   : noop,
-      getConnected: tp ? ipc(tp.device.getConnected) : noop,
-      onUpdate:     tp ? (cb) => tp.device.onUpdate(cb) : (cb) => {},
+      list:         tp ? w(function()   { return tp.device.list() })           : noopArr,
+      connect:      tp ? w(function(s)  { return tp.device.connect(s) })       : noop,
+      disconnect:   tp ? w(function()   { return tp.device.disconnect() })     : noop,
+      getConnected: tp ? w(function()   { return tp.device.getConnected() })   : noop,
+      onUpdate:     tp ? function(cb)   { return tp.device.onUpdate(cb) }      : function() {},
     },
 
     // ── Inspector
     inspector: {
-      screenshot:   tp ? ipc(tp.inspector.screenshot)   : noop,
-      dumpXml:      tp ? ipc(tp.inspector.dumpXml)      : noop,
-      tap:          tp ? ipc(tp.inspector.tap)          : noop,
-      launchApp:    tp ? ipc(tp.inspector.launchApp)    : noop,
-      listPackages: tp ? ipc(tp.inspector.listPackages) : noopArr,
-      installApk:   tp ? ipc(tp.inspector.installApk)  : noop,
-      getScreenSize:tp ? ipc(tp.inspector.getScreenSize): noop,
-      getActiveApp: tp ? ipc(tp.inspector.getActiveApp) : noop,
-      getActivities:tp ? ipc(tp.inspector.getActivities): noopArr,
+      screenshot:    tp ? w(function(s)      { return tp.inspector.screenshot(s) })           : noop,
+      dumpXml:       tp ? w(function(s)      { return tp.inspector.dumpXml(s) })              : noop,
+      tap:           tp ? w(function(s,x,y)  { return tp.inspector.tap(s,x,y) })              : noop,
+      launchApp:     tp ? w(function(s,p)    { return tp.inspector.launchApp(s,p) })          : noop,
+      listPackages:  tp ? w(function(s)      { return tp.inspector.listPackages(s) })         : noopArr,
+      installApk:    tp ? w(function(s,p)    { return tp.inspector.installApk(s,p) })         : noop,
+      getScreenSize: tp ? w(function(s)      { return tp.inspector.getScreenSize(s) })        : noop,
+      getActiveApp:  tp ? w(function(s)      { return tp.inspector.getActiveApp(s) })         : noop,
+      getActivities: tp ? w(function(s,p)    { return tp.inspector.getActivities(s,p) })      : noopArr,
     },
 
     // ── Runner
     runner: {
-      run:             tp ? ipc(tp.runner.run)           : noop,
-      stop:            tp ? ipc(tp.runner.stop)          : noop,
-      getStatus:       tp ? ipc(tp.runner.getStatus)     : noop,
-      onLog:           tp ? (cb) => tp.runner.onLog(cb)  : (cb) => {},
-      onStepUpdate:    tp ? (cb) => tp.runner.onStepUpdate(cb) : (cb) => {},
-      onFinish:        tp ? (cb) => tp.runner.onFinish(cb) : (cb) => {},
-      removeListeners: tp ? () => tp.runner.removeListeners() : () => {},
+      run:             tp ? w(function(c)  { return tp.runner.run(c) })        : noop,
+      stop:            tp ? w(function()   { return tp.runner.stop() })        : noop,
+      getStatus:       tp ? w(function()   { return tp.runner.getStatus() })   : noop,
+      onLog:           tp ? function(cb)   { return tp.runner.onLog(cb) }      : function() {},
+      onStepUpdate:    tp ? function(cb)   { return tp.runner.onStepUpdate(cb) } : function() {},
+      onFinish:        tp ? function(cb)   { return tp.runner.onFinish(cb) }   : function() {},
+      removeListeners: tp ? function()     { return tp.runner.removeListeners() } : function() {},
     },
 
     // ── DSL
     dsl: {
-      save:         tp ? ipc(tp.dsl.save)         : noop,
-      load:         tp ? ipc(tp.dsl.load)         : noop,
-      exportDialog: tp ? ipc(tp.dsl.exportDialog) : noop,
+      save:         tp ? w(function(y,p)  { return tp.dsl.save(y,p) })        : noop,
+      load:         tp ? w(function(p)    { return tp.dsl.load(p) })          : noop,
+      exportDialog: tp ? w(function(y)    { return tp.dsl.exportDialog(y) })  : noop,
     },
 
     // ── DB
     db: {
-      getProjects:     tp ? ipc(tp.db.getProjects)     : noopArr,
-      saveProject:     tp ? ipc(tp.db.saveProject)     : noop,
-      deleteProject:   tp ? ipc(tp.db.deleteProject)   : noop,
-      getSuites:       tp ? ipc(tp.db.getSuites)       : noopArr,
-      saveSuite:       tp ? ipc(tp.db.saveSuite)       : noop,
-      deleteSuite:     tp ? ipc(tp.db.deleteSuite)     : noop,
-      getSections:     tp ? ipc(tp.db.getSections)     : noopArr,
-      saveSection:     tp ? ipc(tp.db.saveSection)     : noop,
-      getTestCases:    tp ? ipc(tp.db.getTestCases)    : noopArr,
-      saveTestCase:    tp ? ipc(tp.db.saveTestCase)    : noop,
-      deleteTestCase:  tp ? ipc(tp.db.deleteTestCase)  : noop,
-      saveRun:         tp ? ipc(tp.db.saveRun)         : noop,
-      getRuns:         tp ? ipc(tp.db.getRuns)         : noopArr,
-      getEnvs:         tp ? ipc(tp.db.getEnvs)         : noopArr,
-      saveEnv:         tp ? ipc(tp.db.saveEnv)         : noop,
-      deleteEnv:       tp ? ipc(tp.db.deleteEnv)       : noop,
-      getSetting:      tp ? ipc(tp.db.getSetting)      : noop,
-      setSetting:      tp ? ipc(tp.db.setSetting)      : noop,
+      getProjects:     tp ? w(function()    { return tp.db.getProjects() })          : noopArr,
+      saveProject:     tp ? w(function(p)   { return tp.db.saveProject(p) })         : noop,
+      deleteProject:   tp ? w(function(id)  { return tp.db.deleteProject(id) })      : noop,
+      getSuites:       tp ? w(function(id)  { return tp.db.getSuites(id) })          : noopArr,
+      saveSuite:       tp ? w(function(s)   { return tp.db.saveSuite(s) })           : noop,
+      deleteSuite:     tp ? w(function(id)  { return tp.db.deleteSuite(id) })        : noop,
+      getSections:     tp ? w(function(id)  { return tp.db.getSections(id) })        : noopArr,
+      saveSection:     tp ? w(function(s)   { return tp.db.saveSection(s) })         : noop,
+      getTestCases:    tp ? w(function(id)  { return tp.db.getTestCases(id) })       : noopArr,
+      saveTestCase:    tp ? w(function(tc)  { return tp.db.saveTestCase(tc) })       : noop,
+      deleteTestCase:  tp ? w(function(id)  { return tp.db.deleteTestCase(id) })     : noop,
+      saveRun:         tp ? w(function(r)   { return tp.db.saveRun(r) })             : noop,
+      getRuns:         tp ? w(function(id)  { return tp.db.getRuns(id) })            : noopArr,
+      getEnvs:         tp ? w(function()    { return tp.db.getEnvs() })              : noopArr,
+      saveEnv:         tp ? w(function(e)   { return tp.db.saveEnv(e) })             : noop,
+      deleteEnv:       tp ? w(function(id)  { return tp.db.deleteEnv(id) })          : noop,
+      getSetting:      tp ? w(function(k)   { return tp.db.getSetting(k) })          : noop,
+      setSetting:      tp ? w(function(k,v) { return tp.db.setSetting(k,v) })        : noop,
     },
 
     // ── System
     system: {
-      openFileDialog: tp ? ipc(tp.system.openFileDialog) : noop,
-      getAppVersion:  tp ? ipc(tp.system.getAppVersion)  : async () => '1.0.0-dev',
-      openExternal:   tp ? ipc(tp.system.openExternal)   : noop,
-      getDataPath:    tp ? ipc(tp.system.getDataPath)    : async () => '~/.testpilot',
+      openFileDialog: tp ? w(function(o)  { return tp.system.openFileDialog(o) })  : noop,
+      getAppVersion:  tp ? w(function()   { return tp.system.getAppVersion() })     : async function() { return '1.0.0-dev' },
+      openExternal:   tp ? w(function(u)  { return tp.system.openExternal(u) })     : noop,
+      getDataPath:    tp ? w(function()   { return tp.system.getDataPath() })        : async function() { return '~/.testpilot' },
     },
   }
 

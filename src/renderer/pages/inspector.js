@@ -1142,14 +1142,21 @@ window.PageInspector = (() => {
     if (!_serial) { toast('⚠️ Pilih device dulu', 'error'); return }
     if (!_steps.length) { toast('⚠️ Tambahkan steps dulu', 'error'); return }
 
-    // Cek runner status — cegah session conflict
+    const pkg = AppState.inspector?.pkg || document.getElementById('cfg-pkg')?.value || ''
+    if (!pkg) {
+      toast('⚠️ Isi Package Name dulu (atau klik Detect)', 'error')
+      addDebugLog('warn', 'Package name kosong — Maestro butuh appId')
+      return
+    }
+
+    // Cek runner status
     const status = await window.api.runner.getStatus().catch(() => null)
     if (status?.isRunning) {
       toast('⚠️ Runner sedang berjalan. Tunggu selesai.', 'error'); return
     }
 
     _stepSt = {}
-    const dsl = generateDSL({ name: 'Inspector Run', package: AppState.inspector?.pkg || '' }, _steps)
+    const dsl = generateDSL({ name: 'Inspector Run', package: pkg, appId: pkg }, _steps)
     const env = AppState.activeEnv?.vars || {}
 
     const btn = document.getElementById('btn-run-steps')
@@ -1157,7 +1164,12 @@ window.PageInspector = (() => {
 
     addDebugLog('head', '═══ RUN START ═══')
     addDebugLog('info', `Device: ${_serial}`)
+    addDebugLog('info', `Package: ${pkg}`)
     addDebugLog('cmd', `maestro --device ${_serial} test [tmp.yaml]`)
+
+    // Switch ke tab DSL Preview sebentar agar user bisa lihat YAML yang dijalankan
+    _editorTab = 'dsl'
+    refreshEditor()
 
     try {
       await window.api.runner.run({
@@ -1175,7 +1187,8 @@ window.PageInspector = (() => {
       toast(`❌ Steps gagal: ${err.message}`, 'error')
     } finally {
       if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-play-fill"></i> Run Steps' }
-      refreshScreen()  // refresh screenshot setelah run
+      _editorTab = 'steps'
+      refreshScreen()
     }
   }
 

@@ -38,36 +38,164 @@
   }
 
   // ── DSL Generator ──────────────────────────────────────────
+  /**
+   * Generate Maestro YAML yang valid
+   * Format resmi: https://docs.maestro.dev
+   *
+   * appId: com.example.app
+   * ---
+   * - tapOn:
+   *     id: "resource_id"
+   * - inputText: "hello"
+   */
   window.generateDSL = function(meta, steps) {
-    const lines = [
-      `# TestPilot DSL v1.0`,
-      `# ${new Date().toISOString().split('T')[0]}`,
-      ``,
-      `scenario:`,
-      `  name: "${meta.name || 'Test Case'}"`,
-      `  platform: android`,
-      `  package: "${meta.package || ''}"`,
-    ]
-    if (meta.tags?.length) {
-      lines.push(`  tags: [${meta.tags.map(t => `"${t}"`).join(', ')}]`)
-    }
-    lines.push(``, `steps:`)
+    const appId = meta.package || meta.appId || 'com.example.app'
+    const lines = []
 
-    steps.forEach((step, i) => {
-      lines.push(`  - step: ${i + 1}`)
-      lines.push(`    action: ${step.action}`)
-      const p = step.params || {}
-      if (p.package)    lines.push(`    package: "${p.package}"`)
-      if (p.selector)   lines.push(`    selector: "${p.selector}"`)
-      if (p.value)      lines.push(`    value: "${p.value}"`)
-      if (p.expected)   lines.push(`    expected: "${p.expected}"`)
-      if (p.direction)  lines.push(`    direction: ${p.direction}`)
-      if (p.ms)         lines.push(`    duration_ms: ${p.ms}`)
-      if (p.name)       lines.push(`    filename: "${p.name}"`)
-      if (p.desc)       lines.push(`    # ${p.desc}`)
+    // Header — appId wajib ada
+    lines.push(`appId: ${appId}`)
+    if (meta.name) lines.push(`# ${meta.name}`)
+    lines.push('---')
+
+    // Convert setiap step ke Maestro command
+    steps.forEach((step) => {
+      const p     = step.params || {}
+      const sel   = p.selector || ''
+      const value = p.value    || ''
+
+      // Parse selector: "id/com.pkg:id/view_id" atau "text/Hello" atau "acc/description"
+      const selectorObj = _parseSelectorToMaestro(sel)
+
+      switch (step.action) {
+        case 'launch':
+          lines.push(`- launchApp:`)
+          lines.push(`    appId: "${p.package || appId}"`)
+          break
+
+        case 'tap':
+          if (selectorObj.type === 'id') {
+            lines.push(`- tapOn:`)
+            lines.push(`    id: "${selectorObj.value}"`)
+          } else if (selectorObj.type === 'text') {
+            lines.push(`- tapOn: "${selectorObj.value}"`)
+          } else if (selectorObj.type === 'acc') {
+            lines.push(`- tapOn:`)
+            lines.push(`    accessibilityLabel: "${selectorObj.value}"`)
+          } else {
+            lines.push(`- tapOn: "${sel}"`)
+          }
+          break
+
+        case 'longPress':
+          if (selectorObj.type === 'id') {
+            lines.push(`- longPressOn:`)
+            lines.push(`    id: "${selectorObj.value}"`)
+          } else {
+            lines.push(`- longPressOn: "${sel}"`)
+          }
+          break
+
+        case 'input':
+          // inputText harus didahului tapOn untuk fokus field dulu
+          if (sel) {
+            if (selectorObj.type === 'id') {
+              lines.push(`- tapOn:`)
+              lines.push(`    id: "${selectorObj.value}"`)
+            } else {
+              lines.push(`- tapOn: "${sel}"`)
+            }
+          }
+          lines.push(`- inputText: "${value}"`)
+          break
+
+        case 'clearText':
+          if (selectorObj.type === 'id') {
+            lines.push(`- tapOn:`)
+            lines.push(`    id: "${selectorObj.value}"`)
+          } else if (sel) {
+            lines.push(`- tapOn: "${sel}"`)
+          }
+          lines.push(`- clearText`)
+          break
+
+        case 'swipe':
+          lines.push(`- swipe:`)
+          lines.push(`    direction: ${p.direction || 'UP'}`)
+          break
+
+        case 'scroll':
+          lines.push(`- scroll`)
+          break
+
+        case 'assertText':
+          lines.push(`- assertVisible: "${p.expected || value}"`)
+          break
+
+        case 'assertVisible':
+          if (selectorObj.type === 'id') {
+            lines.push(`- assertVisible:`)
+            lines.push(`    id: "${selectorObj.value}"`)
+          } else {
+            lines.push(`- assertVisible: "${sel}"`)
+          }
+          break
+
+        case 'assertNotVisible':
+          if (selectorObj.type === 'id') {
+            lines.push(`- assertNotVisible:`)
+            lines.push(`    id: "${selectorObj.value}"`)
+          } else {
+            lines.push(`- assertNotVisible: "${sel}"`)
+          }
+          break
+
+        case 'wait':
+          lines.push(`- waitForAnimationToEnd:`)
+          lines.push(`    timeout: ${p.ms || 1000}`)
+          break
+
+        case 'back':
+          lines.push(`- pressKey: Back`)
+          break
+
+        case 'screenshot':
+          lines.push(`- takeScreenshot: "${p.name || 'screenshot'}"`)
+          break
+
+        default:
+          lines.push(`# unknown action: ${step.action}`)
+      }
     })
 
     return lines.join('\n')
+  }
+
+  /**
+   * Parse selector string ke object Maestro
+   * Input: "id/com.pkg:id/view_name" atau "text/Hello" atau "acc/description"
+   */
+  function _parseSelectorToMaestro(selector) {
+    if (!selector) return { type: 'raw', value: selector }
+
+    if (selector.startsWith('id/')) {
+      // "id/com.socialnmobile.dictapps.notepad.color.note:id/page_more"
+      // Maestro butuh hanya bagian setelah ":id/" atau full string
+      const raw = selector.replace('id/', '')
+      // Ambil bagian terakhir setelah ':id/'
+      const parts = raw.split(':id/')
+      const shortId = parts.length > 1 ? parts[parts.length - 1] : raw
+      return { type: 'id', value: shortId, full: raw }
+    }
+    if (selector.startsWith('text/')) {
+      return { type: 'text', value: selector.replace('text/', '') }
+    }
+    if (selector.startsWith('acc/')) {
+      return { type: 'acc', value: selector.replace('acc/', '') }
+    }
+    if (selector.startsWith('xpath/')) {
+      return { type: 'xpath', value: selector.replace('xpath/', '') }
+    }
+    return { type: 'raw', value: selector }
   }
 
   // ── Colorize DSL for display ───────────────────────────────
