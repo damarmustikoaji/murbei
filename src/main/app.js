@@ -23,7 +23,10 @@ async function createApp() {
     backgroundColor: '#f7f7f5',
     show: false,   // jangan show dulu sebelum ready-to-show
     webPreferences: {
-      preload:          path.join(__dirname, '../../preload.js'),
+      // preload.js ada di root project, sejajar dengan main.js
+      // __dirname = /path/to/testpilot/src/main/
+      // jadi ../../ = /path/to/testpilot/
+      preload: path.join(__dirname, '../../preload.js'),
       contextIsolation: true,
       nodeIntegration:  false,
       sandbox:          false,
@@ -38,8 +41,9 @@ async function createApp() {
   })
 
   // Load renderer
+  // __dirname = src/main/ → naik 2x ke root, masuk src/renderer/
   await mainWindow.loadFile(
-    path.join(__dirname, '../renderer/index.html')
+    path.join(__dirname, '../../src/renderer/index.html')
   )
 
   // Register semua IPC handlers

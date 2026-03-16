@@ -2,23 +2,22 @@
   "watch": [
     "main.js",
     "preload.js",
-    "src/main/",
-    "src/core/",
-    "src/drivers/",
-    "src/store/",
-    "src/utils/"
+    "src/main",
+    "src/core",
+    "src/store",
+    "src/utils"
   ],
   "ignore": [
-    "src/renderer/",
-    "node_modules/",
-    "out/",
-    "**/*.db",
-    "**/*.db-shm",
-    "**/*.db-wal",
-    "**/*.log"
+    "src/renderer",
+    "node_modules",
+    "out",
+    "*.db",
+    "*.db-shm",
+    "*.db-wal",
+    "*.log"
   ],
   "ext": "js,json",
-  "delay": 500,
+  "delay": "500",
   "verbose": true,
   "exec": "electron ."
 }

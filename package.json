@@ -4,8 +4,8 @@
   "description": "Local Mobile Test Runner Agent - Android Inspector & Test Executor",
   "main": "main.js",
   "scripts": {
+    "start": "electron .",
     "dev": "NODE_ENV=development nodemon",
-    "start": "electron-forge start",
     "build": "electron-forge package",
     "make": "electron-forge make",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
@@ -21,13 +21,13 @@
   "author": "TestPilot",
   "license": "MIT",
   "dependencies": {
-    "adm-zip": "^0.5.10",
-    "axios": "^1.6.7",
-    "better-sqlite3": "^11.3.0",
-    "node-machine-id": "^1.1.12",
+    "better-sqlite3": "^9.4.3",
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^5.0.0",
-    "yamljs": "^0.3.0"
+    "node-machine-id": "^1.1.12",
+    "yamljs": "^0.3.0",
+    "adm-zip": "^0.5.10",
+    "axios": "^1.6.7"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.3.0",
@@ -35,8 +35,8 @@
     "@electron-forge/maker-squirrel": "^7.3.0",
     "@electron-forge/maker-zip": "^7.3.0",
     "@electron-forge/plugin-auto-unpack-natives": "^7.3.0",
-    "electron": "^33.0.0",
-    "electron-rebuild": "^2.0.3",
-    "nodemon": "^3.1.14"
+    "electron": "^29.1.0",
+    "electron-rebuild": "^3.2.9",
+    "nodemon": "^3.1.0"
   }
 }
