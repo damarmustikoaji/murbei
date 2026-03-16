@@ -1432,6 +1432,5 @@ window.PageInspector = (() => {
     runSteps, selectElement, hoverElement, unhoverElement,
     onScreenClick, onScreenHover, onScreenLeave,
     detectActiveApp, loadActivities, onPkgChange,
-    fixMaestroPermission, startInstallStep,
   }
 })()
