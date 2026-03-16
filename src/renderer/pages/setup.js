@@ -128,12 +128,68 @@ window.PageSetup = (() => {
     await checkDeps()
     await scanDevices()
     startDevicePoll()
+    checkVersion()  // background — tidak blocking
 
     window.api.device.onUpdate((devices) => {
       _devices = devices
       AppState.devices = devices
       refreshDeviceList()
     })
+  }
+
+  // ── Version Check ──────────────────────────────────────────
+  const CURRENT_VERSION = '1.0.0'
+  const VERSION_CHECK_URL = 'https://mpcfbb0f4ae675349bd5.free.beeceptor.com/check'
+
+  async function checkVersion() {
+    try {
+      const res  = await fetch(VERSION_CHECK_URL, { signal: AbortSignal.timeout(8000) })
+      if (!res.ok) return
+      const data = await res.json()
+
+      const latest = data.version || ''
+      if (!latest || latest === CURRENT_VERSION) return
+
+      const levelCfg = {
+        critical: { bg:'#fee2e2', border:'#dc2626', icon:'bi-exclamation-octagon-fill',   color:'#dc2626', label:'🚨 Update Kritis — Perlu diupdate segera!' },
+        major:    { bg:'#fff7ed', border:'#f97316', icon:'bi-exclamation-triangle-fill',  color:'#ea580c', label:'⬆️ Update Major — Sangat disarankan' },
+        minor:    { bg:'#f0f6ff', border:'#3b7eed', icon:'bi-info-circle-fill',           color:'#2563eb', label:'ℹ️ Update Minor Tersedia' },
+      }
+      const cfg = levelCfg[data.level] || levelCfg.minor
+
+      if (document.getElementById('version-banner')) return
+      const stepsEl = document.getElementById('setup-steps')
+      if (!stepsEl) return
+
+      const banner = document.createElement('div')
+      banner.id = 'version-banner'
+      banner.style.cssText = `
+        background:${cfg.bg};border:1px solid ${cfg.border};border-radius:10px;
+        padding:12px 14px;margin-bottom:12px;display:flex;align-items:flex-start;gap:10px`
+      banner.innerHTML = `
+        <i class="bi ${cfg.icon}" style="color:${cfg.color};font-size:18px;flex-shrink:0;margin-top:1px"></i>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:13px;color:${cfg.color};margin-bottom:3px">
+            ${cfg.label}
+          </div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">
+            ${esc(data.note || 'Versi terbaru tersedia')}
+          </div>
+          <div style="font-size:10px;color:var(--text3)">
+            Versi kamu: <code style="font-family:monospace;background:rgba(0,0,0,.06);padding:1px 4px;border-radius:3px">${CURRENT_VERSION}</code>
+            &nbsp;→&nbsp;
+            Terbaru: <code style="font-family:monospace;background:rgba(0,0,0,.06);padding:1px 4px;border-radius:3px">${esc(latest)}</code>
+            &nbsp;·&nbsp; ${esc(data.date || '')}
+          </div>
+        </div>
+        <button onclick="document.getElementById('version-banner').remove()"
+          style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;
+                 padding:0 4px;border-radius:4px;line-height:1" title="Tutup">✕</button>`
+
+      stepsEl.parentNode.insertBefore(banner, stepsEl)
+    } catch (err) {
+      console.log('[setup] version check skipped:', err.message)
+    }
   }
 
   // ── Device rendering ───────────────────────────────────────
@@ -414,5 +470,5 @@ window.PageSetup = (() => {
     navigate('dashboard')
   }
 
-  return { render, startInstall, finishSetup, scanDevices, useDevice }
+  return { render, startInstall, finishSetup, scanDevices, useDevice, checkVersion, fixMaestroPermission, startInstallStep }
 })()

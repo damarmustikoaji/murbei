@@ -26,10 +26,14 @@ body {
 }
 .sidebar.collapsed { width: var(--sb-col); }
 
-/* Sidebar header: hanya brand/logo, tidak ada hamburger lagi */
+/*
+ * Sidebar header — zona traffic lights macOS (⬤⬤⬤).
+ * padding-left: 80px = ruang aman untuk 3 tombol + spacing.
+ * Mirip pola Microsoft Teams / Slack collapsed sidebar.
+ */
 .sb-header {
   height: var(--tb-h);
-  padding: 0 10px;
+  padding: 0 12px 0 80px;
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 8px; flex-shrink: 0;
   overflow: hidden;
@@ -37,9 +41,13 @@ body {
 }
 .sb-header .sb-brand { -webkit-app-region: no-drag; }
 
-/* Collapsed: sembunyikan brand tapi header tetap ada sebagai drag area untuk traffic lights */
-.sidebar.collapsed .sb-header { padding: 0; min-height: var(--tb-h); }
-.sidebar.collapsed .sb-brand  { display: none; }
+/* Collapsed: hide header content, keep height for traffic lights */
+.sidebar.collapsed .sb-header {
+  padding: 0 0 0 0;
+  justify-content: center;
+  min-height: var(--tb-h);
+}
+.sidebar.collapsed .sb-brand { display: none; }
 
 /* Hamburger sekarang ada di main topbar */
 .hbg {

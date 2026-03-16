@@ -34,22 +34,21 @@ window.PageInspector = (() => {
   let _nextStepId   = 1
 
   const ACTS = {
-    launch:           { l:'Buka App',       f:['package'] },
-    tap:              { l:'Tap',            f:['selector','desc'] },
-    longPress:        { l:'Long Press',     f:['selector','desc'] },
-    input:            { l:'Ketik Teks',     f:['selector','value','desc'] },
-    clearText:        { l:'Clear Text',     f:['selector','desc'] },
-    swipe:            { l:'Swipe',          f:['direction','desc'] },
-    scroll:           { l:'Scroll',         f:['direction','desc'] },
-    assertText:       { l:'Assert Teks',    f:['selector','expected','desc'] },
-    assertVisible:    { l:'Assert Ada',     f:['selector','desc'] },
-    assertNotVisible: { l:'Assert Tidak Ada',f:['selector','desc'] },
-    wait:             { l:'Tunggu',         f:['ms'] },
-    back:             { l:'Tombol Back',    f:['desc'] },
-    screenshot:       { l:'Screenshot',    f:['name'] },
+    tap:              { l:'Tap',             f:['selector','note'] },
+    longPress:        { l:'Long Press',      f:['selector','note'] },
+    input:            { l:'Ketik Teks',      f:['selector','value','note'] },
+    clearText:        { l:'Clear Text',      f:['selector','note'] },
+    swipe:            { l:'Swipe',           f:['direction','note'] },
+    scroll:           { l:'Scroll',          f:['note'] },
+    assertText:       { l:'Assert Teks',     f:['expected','note'] },
+    assertVisible:    { l:'Assert Ada',      f:['selector','note'] },
+    assertNotVisible: { l:'Assert Tidak Ada',f:['selector','note'] },
+    wait:             { l:'Tunggu',          f:['ms','note'] },
+    back:             { l:'Tombol Back',     f:['note'] },
+    screenshot:       { l:'Screenshot',      f:['name','note'] },
   }
   const ACT_ICONS = {
-    launch:'rocket-takeoff', tap:'hand-index', longPress:'hand-index-thumb',
+    tap:'hand-index', longPress:'hand-index-thumb',
     input:'keyboard', clearText:'eraser', swipe:'arrows-move', scroll:'arrow-down-up',
     assertText:'check-circle', assertVisible:'eye', assertNotVisible:'eye-slash',
     wait:'hourglass-split', back:'arrow-left-circle', screenshot:'camera',
@@ -72,7 +71,6 @@ window.PageInspector = (() => {
     content.className = 'content-area no-pad'
 
     ta.innerHTML = `
-      <span id="step-count" style="font-size:11px;color:var(--text3);margin-right:4px"></span>
       <button class="btn btn-g btn-sm" id="btn-run-steps" onclick="PageInspector.runSteps()">
         <i class="bi bi-play-fill"></i> Run Steps
       </button>
@@ -133,7 +131,7 @@ window.PageInspector = (() => {
 
               <!-- Body — collapsible -->
               <div id="target-app-body" style="padding:0 10px 10px;
-                display:${AppState.inspector._targetAppOpen !== false ? 'none' : 'block'}">
+                display:${AppState.inspector._targetAppOpen !== false ? 'block' : 'none'}">
                 <!-- Package name -->
                 <div style="margin-bottom:5px">
                   <input type="text" id="cfg-pkg" style="width:100%;font-size:11px;font-family:var(--font-mono)"
@@ -1252,12 +1250,7 @@ window.PageInspector = (() => {
 
   function updateStepCount() {
     const el = document.getElementById('step-count')
-    if (el) {
-      el.textContent = _steps.length ? `${_steps.length} steps` : ''
-    }
-    // Juga update tab header
-    const tabCount = document.querySelector('.insp-R .tab-count')
-    if (tabCount) tabCount.textContent = _steps.length
+    if (el) el.textContent = `${_steps.length} steps`
   }
 
   // ── Run steps ──────────────────────────────────────────────
