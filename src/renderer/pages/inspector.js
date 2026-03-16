@@ -167,19 +167,29 @@ window.PageInspector = (() => {
           </div>
 
           <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;padding:8px;gap:8px">
-            <!-- Screenshot -->
-            <div class="screen-wrap" id="screen-wrap" style="height:260px"
+            <!-- Screenshot: wrap pakai position relative, gambar menentukan ukuran container -->
+            <div id="screen-wrap"
+              style="position:relative;flex-shrink:0;align-self:center;
+                     max-height:280px;max-width:100%;
+                     background:#111;border-radius:8px;overflow:hidden;cursor:crosshair;
+                     display:flex;align-items:center;justify-content:center;"
               onclick="PageInspector.onScreenClick(event)"
               onmousemove="PageInspector.onScreenHover(event)"
               onmouseleave="PageInspector.onScreenLeave()">
-              <div id="screen-placeholder" style="color:var(--text3);font-size:12px;text-align:center;padding:20px">
+              <div id="screen-placeholder"
+                style="color:var(--text3);font-size:12px;text-align:center;padding:32px 20px;width:200px">
                 <i class="bi bi-phone" style="font-size:2rem;display:block;margin-bottom:8px;opacity:.4"></i>
                 Hubungkan device dan klik <b>Refresh</b>
               </div>
-              <img id="screen-img" class="screen-img" style="display:none" alt="Device screen"
-                draggable="false">
-              <!-- Overlay canvas untuk highlight -->
-              <div class="screen-overlay" id="screen-overlay"></div>
+              <!-- img menentukan ukuran container — overlay di atasnya exact -->
+              <img id="screen-img"
+                style="display:none;max-height:280px;max-width:100%;
+                       width:auto;height:auto;border-radius:6px;
+                       user-select:none;-webkit-user-drag:none;"
+                alt="Device screen" draggable="false">
+              <!-- Overlay SAMA PERSIS ukurannya dengan img via JS -->
+              <div id="screen-overlay"
+                style="position:absolute;pointer-events:none;top:0;left:0;"></div>
             </div>
 
             <!-- Left tabs: XML / Detail / Debug -->
@@ -233,6 +243,21 @@ window.PageInspector = (() => {
 
     // Listen runner events
     _setupRunnerListeners()
+
+    // ResizeObserver: re-render highlights saat window / panel di-resize
+    if (window.ResizeObserver) {
+      if (window._inspectorRO) window._inspectorRO.disconnect()
+      window._inspectorRO = new ResizeObserver(() => {
+        const img = document.getElementById('screen-img')
+        if (img && img.style.display !== 'none' && _elements.length) {
+          _updateImgDimensions()
+          renderHighlights()
+        }
+      })
+      // Watch screen-wrap agar trigger ketika panel kiri berubah ukuran
+      const wrap = document.getElementById('screen-wrap')
+      if (wrap) window._inspectorRO.observe(wrap)
+    }
   }
 
   // ── Device list ────────────────────────────────────────────
@@ -455,28 +480,41 @@ window.PageInspector = (() => {
   // ── Highlight overlay ──────────────────────────────────────
   function renderHighlights() {
     const overlay = document.getElementById('screen-overlay')
-    if (!overlay || !_elements.length || !_imgW) return
+    if (!overlay) return
 
+    // Refresh dimensi sebelum render highlight
+    _updateImgDimensions()
+
+    if (!_elements.length || !_imgW || !_imgH) {
+      overlay.innerHTML = ''
+      return
+    }
+
+    // Scale factor: pixel device → pixel UI
+    const scaleX = _imgW  / _screenW
+    const scaleY = _imgH  / _screenH
+
+    // Aktifkan pointer events di overlay container (untuk klik/hover box)
+    overlay.style.pointerEvents = 'auto'
     overlay.innerHTML = ''
 
     _elements.forEach(el => {
-      if (!el.highlight || !el.bounds) return
+      if (!el.bounds) return
       const { x, y, width, height } = el.bounds
 
-      // Scale koordinat device → koordinat overlay
-      const scaleX = _imgW / _screenW
-      const scaleY = _imgH / _screenH
+      // Skip elemen yang bounds-nya di luar layar atau terlalu kecil
+      if (width < 2 || height < 2) return
 
-      const box = document.createElement('div')
-      box.className = 'hl-box'
-      box.id = `hl-${el.id}`
-      box.style.left   = (x * scaleX) + 'px'
-      box.style.top    = (y * scaleY) + 'px'
-      box.style.width  = (width * scaleX) + 'px'
-      box.style.height = (height * scaleY) + 'px'
+      const box        = document.createElement('div')
+      box.className    = 'hl-box'
+      box.id           = `hl-${el.id}`
+      box.style.left   = Math.round(x * scaleX)      + 'px'
+      box.style.top    = Math.round(y * scaleY)       + 'px'
+      box.style.width  = Math.round(width  * scaleX) + 'px'
+      box.style.height = Math.round(height * scaleY) + 'px'
+      box.style.pointerEvents = 'auto'
       box.dataset.elId = el.id
 
-      // Hover state
       box.addEventListener('mouseenter', () => hoverElement(el.id))
       box.addEventListener('mouseleave', () => unhoverElement())
       box.addEventListener('click', (e) => {
@@ -502,12 +540,16 @@ window.PageInspector = (() => {
 
   // ── Screen interaction ─────────────────────────────────────
   function onScreenClick(event) {
-    const wrap = document.getElementById('screen-wrap')
-    const img  = document.getElementById('screen-img')
+    const img = document.getElementById('screen-img')
     if (!img || img.style.display === 'none') return
 
     const rect = img.getBoundingClientRect()
-    // Koordinat relatif terhadap gambar
+
+    // Pastikan klik dalam batas gambar
+    if (event.clientX < rect.left || event.clientX > rect.right) return
+    if (event.clientY < rect.top  || event.clientY > rect.bottom) return
+
+    // Koordinat relatif terhadap gambar (bukan container)
     const relX = event.clientX - rect.left
     const relY = event.clientY - rect.top
 
@@ -515,31 +557,48 @@ window.PageInspector = (() => {
     const devX = Math.round(relX * _screenW / rect.width)
     const devY = Math.round(relY * _screenH / rect.height)
 
-    // Cari element yang mengandung koordinat ini
     const found = findElementAtCoords(devX, devY)
     if (found) {
       selectElement(found.id)
-      addDebugLog('info', `Tap @ (${devX}, ${devY}) → ${found.resourceId || found.text || found.class}`)
+      addDebugLog('info', `Click @ (${devX},${devY}) → ${found.resourceId || found.text || found.class}`)
     }
 
-    // Show tap ripple
-    showTapRipple(event.clientX - rect.left + wrap.getBoundingClientRect().left - wrap.getBoundingClientRect().left,
-                  event.clientY - rect.top, wrap)
+    // Ripple relatif terhadap screen-wrap
+    const wrap = document.getElementById('screen-wrap')
+    if (wrap) {
+      const wrapRect = wrap.getBoundingClientRect()
+      showTapRipple(
+        event.clientX - wrapRect.left,
+        event.clientY - wrapRect.top,
+        wrap
+      )
+    }
   }
 
   function onScreenHover(event) {
-    const img  = document.getElementById('screen-img')
+    const img = document.getElementById('screen-img')
     if (!img || img.style.display === 'none') return
 
     const rect = img.getBoundingClientRect()
-    const devX = Math.round((event.clientX - rect.left) * _screenW / rect.width)
-    const devY = Math.round((event.clientY - rect.top) * _screenH / rect.height)
+
+    // Hanya proses jika mouse di atas gambar
+    if (event.clientX < rect.left || event.clientX > rect.right) return
+    if (event.clientY < rect.top  || event.clientY > rect.bottom) return
+
+    const relX = event.clientX - rect.left
+    const relY = event.clientY - rect.top
+    const devX = Math.round(relX * _screenW / rect.width)
+    const devY = Math.round(relY * _screenH / rect.height)
 
     const found = findElementAtCoords(devX, devY)
     if (found && found.id !== _hoveredId) {
       _hoveredId = found.id
       updateHighlightStates()
       updateTreeHover(found.id)
+    } else if (!found && _hoveredId) {
+      _hoveredId = null
+      updateHighlightStates()
+      updateTreeHover(null)
     }
   }
 
@@ -663,30 +722,65 @@ window.PageInspector = (() => {
     addDebugLog('info', `Capturing screenshot from ${_serial}...`)
     try {
       const b64 = await window.api.inspector.screenshot(_serial)
-      const img = document.getElementById('screen-img')
+      const img         = document.getElementById('screen-img')
       const placeholder = document.getElementById('screen-placeholder')
-      if (img) {
-        img.src = `data:image/png;base64,${b64}`
-        img.style.display = 'block'
-        if (placeholder) placeholder.style.display = 'none'
+      if (!img) return
 
-        // Setelah load, update dimensi untuk scaling highlight
-        img.onload = () => {
-          const rect = img.getBoundingClientRect()
-          _imgW = rect.width
-          _imgH = rect.height
+      img.onload = () => {
+        // Tunggu 2 frame agar browser selesai layout & paint
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          _updateImgDimensions()
           renderHighlights()
-        }
+        }))
       }
-      AppState.inspector.screenshotB64 = b64
-      addDebugLog('pass', `Screenshot OK (${_screenW}x${_screenH})`)
 
-      // Auto dump XML
+      img.src = `data:image/png;base64,${b64}`
+      img.style.display = 'block'
+      if (placeholder) placeholder.style.display = 'none'
+
+      AppState.inspector.screenshotB64 = b64
+      addDebugLog('pass', `Screenshot OK (${_screenW}×${_screenH})`)
+
       await dumpXml()
     } catch (err) {
       addDebugLog('fail', `Screenshot failed: ${err.message}`)
       toast(`Screenshot gagal: ${err.message}`, 'error')
     }
+  }
+
+  /**
+   * Ambil dimensi gambar yang sebenarnya di-render di DOM.
+   * Perlu dibedakan dari ukuran container — gambar bisa letterbox.
+   * Simpan di _imgW/_imgH dan juga posisi offset dalam container.
+   */
+  function _updateImgDimensions() {
+    const img = document.getElementById('screen-img')
+    if (!img || img.style.display === 'none') return
+
+    const rect = img.getBoundingClientRect()
+    _imgW = rect.width
+    _imgH = rect.height
+
+    // Set overlay persis sama ukuran dan posisi dengan gambar
+    const overlay = document.getElementById('screen-overlay')
+    const wrap    = document.getElementById('screen-wrap')
+    if (overlay && wrap) {
+      const wrapRect = wrap.getBoundingClientRect()
+      // Hitung offset gambar relatif terhadap wrap (center-aligned)
+      const offsetLeft = rect.left - wrapRect.left
+      const offsetTop  = rect.top  - wrapRect.top
+      overlay.style.left   = offsetLeft + 'px'
+      overlay.style.top    = offsetTop  + 'px'
+      overlay.style.width  = rect.width  + 'px'
+      overlay.style.height = rect.height + 'px'
+      overlay.style.pointerEvents = 'none'
+    }
+
+    addDebugLog('info',
+      `Render size: ${Math.round(_imgW)}×${Math.round(_imgH)} ` +
+      `(device: ${_screenW}×${_screenH}, ` +
+      `scale: ${(_imgW/_screenW).toFixed(3)}×${(_imgH/_screenH).toFixed(3)})`
+    )
   }
 
   async function dumpXml() {

@@ -22,6 +22,11 @@
       AppState.emit('page-leaving-setup')
     }
 
+    // Cleanup inspector ResizeObserver
+    if (AppState.currentPage === 'inspector' && page !== 'inspector') {
+      if (window._inspectorRO) { window._inspectorRO.disconnect(); window._inspectorRO = null }
+    }
+
     AppState.currentPage = page
 
     // Update sidebar active state
