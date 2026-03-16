@@ -63,9 +63,46 @@ class SetupManager extends EventEmitter {
   }
 
   async _checkAdb() {
+    const { execFile } = require('child_process')
     const adbPath = getAdbPath()
-    const ok = await isBinaryAvailable(adbPath)
-    return { ok, path: adbPath }
+
+    // Helper: cek satu path ADB dengan menjalankan 'adb version'
+    const tryAdb = (p) => new Promise(resolve => {
+      execFile(p, ['version'], { timeout: 4000 }, (err, stdout) => {
+        resolve(!err && stdout.toLowerCase().includes('android debug bridge'))
+      })
+    })
+
+    // 1. Cek path yang dikembalikan getAdbPath()
+    if (await tryAdb(adbPath)) return { ok: true, path: adbPath }
+
+    // 2. Cek kandidat lain
+    const candidates = ['adb']
+    if (process.env.ANDROID_HOME) {
+      candidates.push(
+        require('path').join(process.env.ANDROID_HOME, 'platform-tools', 'adb'),
+        require('path').join(process.env.ANDROID_HOME, 'platform-tools', process.platform === 'win32' ? 'adb.exe' : 'adb')
+      )
+    }
+    if (process.env.ANDROID_SDK_ROOT) {
+      candidates.push(require('path').join(process.env.ANDROID_SDK_ROOT, 'platform-tools', 'adb'))
+    }
+    // macOS common paths
+    const home = require('os').homedir()
+    candidates.push(
+      `${home}/Library/Android/sdk/platform-tools/adb`,
+      '/usr/local/bin/adb',
+      '/opt/homebrew/bin/adb'
+    )
+
+    for (const p of candidates) {
+      if (await tryAdb(p)) {
+        logger.info(`ADB found at: ${p}`)
+        return { ok: true, path: p }
+      }
+    }
+
+    return { ok: false, path: adbPath }
   }
 
   async _checkJava() {
@@ -84,9 +121,28 @@ class SetupManager extends EventEmitter {
   }
 
   async _checkMaestro() {
+    const { execFile } = require('child_process')
     const maestroPath = getMaestroPath()
-    if (!fs.existsSync(maestroPath)) return { ok: false, path: maestroPath }
-    const ok = await isBinaryAvailable(maestroPath)
+
+    // getMaestroPath() sudah cek semua kandidat path
+    if (!require('fs').existsSync(maestroPath)) {
+      // Coba juga system maestro (kalau user install via brew)
+      const systemMaestro = await new Promise(resolve => {
+        execFile('maestro', ['--help'], { timeout: 5000 }, (err) => resolve(!err))
+      })
+      if (systemMaestro) return { ok: true, path: 'maestro (system)' }
+      return { ok: false, path: maestroPath }
+    }
+
+    // Binary ada, verifikasi bisa dijalankan
+    const ok = await new Promise(resolve => {
+      execFile(maestroPath, ['--help'], { timeout: 6000 }, (err) => {
+        // Maestro --help exit 0 = OK
+        // Kalau ENOENT/EACCES = tidak ada/tidak bisa exec
+        if (!err) { resolve(true); return }
+        resolve(err.code !== 'ENOENT' && err.code !== 'EACCES')
+      })
+    })
     return { ok, path: maestroPath }
   }
 

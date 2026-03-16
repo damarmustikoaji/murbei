@@ -22,21 +22,55 @@ class DeviceManager extends EventEmitter {
   }
 
   async init() {
-    const adbPath = getAdbPath()
-    logger.info(`Checking ADB at: ${adbPath}`)
-
-    this.adbReady = await isBinaryAvailable(adbPath)
-    if (!this.adbReady) {
-      logger.warn('ADB not found. Devices will not be detected until ADB is installed.')
+    // Coba temukan ADB yang berfungsi
+    const adbPath = await this._findWorkingAdb()
+    if (!adbPath) {
+      logger.warn('ADB not found anywhere. Device polling disabled.')
+      this.adbReady = false
       return
     }
 
-    // Start ADB server
-    await adb(['start-server']).catch(e => logger.warn('adb start-server:', e.message))
+    // Simpan path yang berhasil ke env agar getAdbPath() bisa pakai
+    process.env._TESTPILOT_ADB_PATH = adbPath
+    this.adbReady = true
+    logger.info(`ADB ready at: ${adbPath}`)
 
-    logger.info('ADB ready. Starting device polling...')
+    // Start ADB server
+    await require('../utils/process-utils').spawnAsync(adbPath, ['start-server'], { timeout: 5000 })
+      .catch(e => logger.warn('adb start-server:', e.message))
+
     await this.refresh()
     this._startPolling()
+  }
+
+  async _findWorkingAdb() {
+    const { execFile } = require('child_process')
+    const home = require('os').homedir()
+
+    const candidates = [
+      getAdbPath(),   // bundled atau ~/.testpilot/adb/adb
+      'adb',
+      `${home}/Library/Android/sdk/platform-tools/adb`,
+      `${home}/Android/Sdk/platform-tools/adb`,
+      '/usr/local/bin/adb',
+      '/opt/homebrew/bin/adb',
+    ]
+    if (process.env.ANDROID_HOME) {
+      candidates.unshift(require('path').join(process.env.ANDROID_HOME, 'platform-tools', 'adb'))
+    }
+    if (process.env.ANDROID_SDK_ROOT) {
+      candidates.unshift(require('path').join(process.env.ANDROID_SDK_ROOT, 'platform-tools', 'adb'))
+    }
+
+    for (const p of candidates) {
+      const ok = await new Promise(resolve => {
+        execFile(p, ['version'], { timeout: 3000 }, (err, stdout) => {
+          resolve(!err && stdout?.toLowerCase().includes('android debug bridge'))
+        })
+      })
+      if (ok) return p
+    }
+    return null
   }
 
   _startPolling() {

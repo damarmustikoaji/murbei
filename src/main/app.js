@@ -10,7 +10,7 @@ const db     = require('../store/database')
 let mainWindow = null
 
 async function createApp() {
-  // Init database
+  // Init database PERTAMA
   db.init()
 
   mainWindow = new BrowserWindow({
@@ -19,15 +19,10 @@ async function createApp() {
     minWidth:     1280,
     minHeight:    800,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    // Posisi traffic lights: x=16 dari kiri, y=16 agar center di header 48px
-    // (48 - 16 diameter) / 2 = 16px top)
     trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: '#f7f7f5',
-    show: false,   // jangan show dulu sebelum ready-to-show
+    show: false,
     webPreferences: {
-      // preload.js ada di root project, sejajar dengan main.js
-      // __dirname = /path/to/testpilot/src/main/
-      // jadi ../../ = /path/to/testpilot/
       preload: path.join(__dirname, '../../preload.js'),
       contextIsolation: true,
       nodeIntegration:  false,
@@ -36,41 +31,38 @@ async function createApp() {
     },
   })
 
+  // ── PENTING: Register IPC handlers SEBELUM loadFile ──────────
+  // Renderer mulai bootstrap segera setelah loadFile dan langsung
+  // memanggil IPC (misal db:envs:getAll di router.js).
+  // Kalau handler belum ready → "No handler registered" error.
+  const { registerAllHandlers } = require('./ipc-handlers')
+  registerAllHandlers(mainWindow)
+
+  // Start device polling (boleh async, tidak blocking renderer)
+  const deviceManager = require('../core/device-manager')
+  deviceManager.init().catch(err => logger.warn('deviceManager.init:', err.message))
+  deviceManager.on('devices-updated', (devices) => {
+    mainWindow?.webContents?.send('device:update', devices)
+  })
+
   // Show saat sudah siap (cegah white flash)
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
     logger.info('Window ready to show')
   })
 
-  // Load renderer
-  // __dirname = src/main/ → naik 2x ke root, masuk src/renderer/
+  // Load renderer — SETELAH handlers registered
   await mainWindow.loadFile(
     path.join(__dirname, '../../src/renderer/index.html')
   )
-
-  // Register semua IPC handlers
-  const { registerAllHandlers } = require('./ipc-handlers')
-  registerAllHandlers(mainWindow)
-
-  // Start device polling
-  const deviceManager = require('../core/device-manager')
-  await deviceManager.init()
-
-  // Forward device events ke renderer
-  deviceManager.on('devices-updated', (devices) => {
-    mainWindow?.webContents?.send('device:update', devices)
-  })
 
   // DevTools hanya di development
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
 
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
+  mainWindow.on('closed', () => { mainWindow = null })
 
-  // Intercept external links → open di browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }

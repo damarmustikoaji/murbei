@@ -20,25 +20,40 @@ const TESTPILOT_DIR = path.join(os.homedir(), '.testpilot')
  * Priority: bundled di resources/bin/ → ~/.testpilot/adb/
  */
 function getAdbPath() {
+  // Priority 0: sudah di-discover oleh device-manager.init()
+  if (process.env._TESTPILOT_ADB_PATH) {
+    return process.env._TESTPILOT_ADB_PATH
+  }
+
   const platform = process.platform
   const adbName  = platform === 'win32' ? 'adb.exe' : 'adb'
 
-  // 1. Cek bundled di app resources (production build)
+  // 1. Bundled di app resources (production build)
   const resourcesPath = process.resourcesPath
     ? path.join(process.resourcesPath, 'bin', adbName)
     : null
+  if (resourcesPath && fs.existsSync(resourcesPath)) return resourcesPath
 
-  if (resourcesPath && fs.existsSync(resourcesPath)) {
-    return resourcesPath
-  }
-
-  // 2. Cek di ~/.testpilot/adb/ (downloaded by setup)
+  // 2. Downloaded by setup → ~/.testpilot/adb/adb
   const setupPath = path.join(TESTPILOT_DIR, 'adb', adbName)
-  if (fs.existsSync(setupPath)) {
-    return setupPath
+  if (fs.existsSync(setupPath)) return setupPath
+
+  // 3. Common macOS paths
+  const home = os.homedir()
+  const commonPaths = [
+    `${home}/Library/Android/sdk/platform-tools/${adbName}`,
+    `${home}/Android/Sdk/platform-tools/${adbName}`,
+    '/usr/local/bin/adb',
+    '/opt/homebrew/bin/adb',
+  ]
+  if (process.env.ANDROID_HOME) {
+    commonPaths.unshift(path.join(process.env.ANDROID_HOME, 'platform-tools', adbName))
+  }
+  for (const p of commonPaths) {
+    if (fs.existsSync(p)) return p
   }
 
-  // 3. Fallback: system ADB (jika user sudah install Android Studio)
+  // 4. Fallback: system PATH
   return adbName
 }
 
@@ -65,20 +80,47 @@ function getMaestroPath() {
 }
 
 /**
- * Cek apakah sebuah binary bisa dieksekusi.
- * Mencoba beberapa flag umum karena setiap tool berbeda.
+ * Cek apakah sebuah binary tersedia dan bisa dieksekusi.
+ * Handles:
+ * - Absolute path: cek fs.existsSync dulu
+ * - Command name only (misal "adb"): langsung exec, skip existsSync
  */
 function isBinaryAvailable(binaryPath) {
   return new Promise(resolve => {
-    if (!fs.existsSync(binaryPath)) { resolve(false); return }
-    // Coba tanpa argumen dulu (Maestro exit 0 saat dipanggil tanpa arg)
+    const isAbsolute = path.isAbsolute(binaryPath)
+
+    // Kalau absolute path, cek dulu ada tidaknya file
+    if (isAbsolute && !fs.existsSync(binaryPath)) {
+      resolve(false)
+      return
+    }
+
+    // Exec dengan 'version' untuk Maestro, '-version' untuk java, 'version' untuk adb
+    // Pakai shell:true agar PATH diteruskan dengan benar di semua OS
+    const { exec } = require('child_process')
+    // `which` di Unix / `where` di Windows — paling reliable untuk cek existence
+    const checkCmd = process.platform === 'win32'
+      ? `where "${binaryPath}" > nul 2>&1`
+      : `command -v "${binaryPath}" > /dev/null 2>&1 || type "${binaryPath}" > /dev/null 2>&1`
+
+    if (!isAbsolute) {
+      // Untuk non-absolute: cek via shell PATH
+      exec(checkCmd, { timeout: 3000 }, (err) => {
+        if (!err) { resolve(true); return }
+        // Fallback: coba exec langsung
+        execFile(binaryPath, ['version'], { timeout: 4000 }, (err2) => {
+          const notFound = !err2 || err2.code !== 'ENOENT'
+          resolve(notFound && err2?.code !== 'ENOENT')
+        })
+      })
+      return
+    }
+
+    // Absolute path yang ada: coba jalankan
     execFile(binaryPath, [], { timeout: 5000 }, (err) => {
       if (!err) { resolve(true); return }
-      // Exit code bukan 0 tidak berarti binary tidak ada —
-      // bisa jadi argumen tidak valid tapi binary tetap ada
-      // Selama bukan ENOENT / EACCES, anggap binary ada
+      // Binary ada tapi exit non-zero = binary ada (Maestro exit 1 tanpa args)
       const notFound = err.code === 'ENOENT' || err.code === 'EACCES'
-        || (err.message && err.message.includes('not found'))
       resolve(!notFound)
     })
   })
