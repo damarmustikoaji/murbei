@@ -73,28 +73,46 @@ window.PageInspector = (() => {
     content.className = 'content-area no-pad'
 
     // ── Handle activeTcId ──────────────────────────────────────
-    // Load steps hanya kalau TC baru dipilih dari Projects
     if (AppState.activeTcId && AppState.activeTcId !== _loadedTcId) {
       try {
         const tc = await window.api.db.getTestCaseById(AppState.activeTcId)
         if (tc) {
           let loaded = []
-          if (tc.steps_json && tc.steps_json !== '[]') {
-            try { loaded = JSON.parse(tc.steps_json) } catch {}
+
+          // Coba load dari steps_json dulu (tersimpan mulai versi terbaru)
+          if (tc.steps_json && tc.steps_json !== '[]' && tc.steps_json !== 'null') {
+            try {
+              const parsed = JSON.parse(tc.steps_json)
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                loaded = parsed
+              }
+            } catch (e) {
+              console.warn('[inspector] steps_json parse error:', e.message)
+            }
           }
+
           _steps      = loaded
           _stepSt     = {}
           _loadedTcId = AppState.activeTcId
-          if (!AppState.inspector.pkg && tc.dsl_yaml) {
-            const pkgMatch = tc.dsl_yaml.match(/^appId:\s*(\S+)/m)
+
+          // Set package dari DSL kalau belum ada
+          const dsl = tc.dsl_yaml || tc.steps_yaml || ''
+          if (dsl) {
+            const pkgMatch = dsl.match(/^appId:\s*(\S+)/m)
             if (pkgMatch) AppState.inspector.pkg = pkgMatch[1]
           }
+
+          addDebugLog('info',
+            loaded.length
+              ? `TC loaded: "${tc.name}" — ${loaded.length} steps`
+              : `TC loaded: "${tc.name}" — tidak ada steps_json, buat ulang steps lalu klik Update TC`
+          )
         }
       } catch (e) {
-        console.warn('[inspector] Failed to load TC steps:', e.message)
+        console.warn('[inspector] Failed to load TC:', e.message)
+        addDebugLog('warn', `Gagal load TC: ${e.message}`)
       }
     }
-    // Tidak ada reset saat pindah halaman — steps tetap ada
 
     ta.innerHTML = `
       <button class="btn btn-g btn-sm" id="btn-run-steps" onclick="PageInspector.runSteps()">
@@ -295,25 +313,25 @@ window.PageInspector = (() => {
               style="position:relative;flex-shrink:0;align-self:center;
                      max-height:280px;max-width:100%;
                      background:#111;border-radius:8px;cursor:crosshair;
-                     display:inline-block;line-height:0;">
+                     display:inline-block;line-height:0;min-width:160px;min-height:120px;">
+              <!-- Placeholder: absolute center, hanya tampil saat tidak ada screenshot -->
               <div id="screen-placeholder"
-                style="color:var(--text3);font-size:12px;text-align:center;padding:32px 20px;
-                       width:200px;display:flex;flex-direction:column;align-items:center">
-                <i class="bi bi-phone" style="font-size:2rem;display:block;margin-bottom:8px;opacity:.4"></i>
-                Hubungkan device dan klik <b>Refresh</b>
+                style="position:absolute;inset:0;display:flex;flex-direction:column;
+                       align-items:center;justify-content:center;
+                       color:rgba(255,255,255,.4);font-size:11px;text-align:center;
+                       padding:20px;line-height:1.5;pointer-events:none">
+                <i class="bi bi-phone" style="font-size:2rem;display:block;margin-bottom:8px;opacity:.5"></i>
+                Hubungkan device dan klik <b style="color:rgba(255,255,255,.6)">Refresh</b>
               </div>
-              <!-- img: block element, menentukan ukuran wrap -->
+              <!-- img: block element, menentukan ukuran wrap saat screenshot ada -->
               <img id="screen-img"
                 style="display:none;max-height:280px;max-width:100%;
                        width:auto;height:auto;border-radius:6px;vertical-align:top;
                        user-select:none;-webkit-user-drag:none;"
                 alt="Device screen" draggable="false">
-              <!--
-                Overlay: position absolute, akan di-set persis sama ukuran+posisi img oleh JS.
-                pointer-events:auto agar click/hover diterima.
-              -->
+              <!-- Overlay: hanya aktif saat screenshot ada -->
               <div id="screen-overlay"
-                style="position:absolute;top:0;left:0;pointer-events:auto;cursor:crosshair;"></div>
+                style="position:absolute;top:0;left:0;pointer-events:none;cursor:crosshair;"></div>
             </div>
 
             <!-- Left tabs: XML / Detail / Debug -->
@@ -603,9 +621,18 @@ window.PageInspector = (() => {
     <div id="step-list" style="display:flex;flex-direction:column">
       ${_steps.length
         ? _steps.map((s,i) => renderStepRow(s,i)).join('')
-        : `<div class="empty-s"><div class="ei"><i class="bi bi-gear"></i></div>
-           <h3>Belum Ada Step</h3>
-           <p>Pilih element dari tree atau klik aksi di bawah.</p></div>`}
+        : AppState.activeTcId
+          ? `<div class="empty-s">
+               <div class="ei"><i class="bi bi-pencil-square"></i></div>
+               <h3>Steps Belum Tersimpan</h3>
+               <p style="max-width:280px;line-height:1.6">
+                 Test case ini dibuat sebelum fitur penyimpanan steps tersedia.<br>
+                 Tambahkan steps baru, lalu klik <b>Update TC</b> untuk menyimpannya.
+               </p>
+             </div>`
+          : `<div class="empty-s"><div class="ei"><i class="bi bi-gear"></i></div>
+             <h3>Belum Ada Step</h3>
+             <p>Pilih element dari tree atau klik aksi di bawah.</p></div>`}
     </div>
     <div class="chips">
       ${Object.entries(ACTS).map(([k,a]) =>
@@ -1033,6 +1060,9 @@ window.PageInspector = (() => {
     } catch (err) {
       addDebugLog('fail', `Screenshot failed: ${err.message}`)
       toast(`Screenshot gagal: ${err.message}`, 'error')
+      // Tampilkan kembali placeholder saat gagal
+      const ph = document.getElementById('screen-placeholder')
+      if (ph) ph.style.display = 'flex'
     }
   }
 
@@ -1049,20 +1079,21 @@ window.PageInspector = (() => {
     const newW = Math.round(rect.width)
     const newH = Math.round(rect.height)
 
-    // Set overlay persis sama ukuran dengan gambar
-    // Dengan display:inline-block pada wrap, gambar mulai dari top:0 left:0
-    // sehingga overlay cukup di-set width/height sama dengan gambar
-    const overlay = document.getElementById('screen-overlay')
+    const overlay     = document.getElementById('screen-overlay')
+    const placeholder = document.getElementById('screen-placeholder')
+
     if (overlay) {
-      overlay.style.top    = '0px'
-      overlay.style.left   = '0px'
-      overlay.style.width  = rect.width  + 'px'
-      overlay.style.height = rect.height + 'px'
+      overlay.style.top          = '0px'
+      overlay.style.left         = '0px'
+      overlay.style.width        = rect.width  + 'px'
+      overlay.style.height       = rect.height + 'px'
       overlay.style.pointerEvents = 'auto'
       overlay.style.cursor        = 'crosshair'
     }
 
-    // Log hanya kalau dimensi berubah
+    // Sembunyikan placeholder saat screenshot ada
+    if (placeholder) placeholder.style.display = 'none'
+
     if (newW !== _imgW || newH !== _imgH) {
       _imgW = newW
       _imgH = newH
