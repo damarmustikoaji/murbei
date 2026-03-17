@@ -27,6 +27,7 @@ window.PageInspector = (() => {
   let _debugLogs    = []
   let _steps        = []     // editor steps
   let _stepSt       = {}     // { stepId: 'pass'|'fail'|'run' }
+  let _loadedTcId   = null   // TC id yang sedang di-load ke steps (cegah reload berulang)
   let _editorTab    = 'steps'
   let _leftTab      = 'xml'
   let _packages     = []
@@ -66,10 +67,34 @@ window.PageInspector = (() => {
   }
 
   // ── Render ─────────────────────────────────────────────────
-  function render() {
+  async function render() {
     const content = document.getElementById('content-area')
     const ta      = document.getElementById('topbar-actions')
     content.className = 'content-area no-pad'
+
+    // ── Handle activeTcId ──────────────────────────────────────
+    // Load steps hanya kalau TC baru dipilih dari Projects
+    if (AppState.activeTcId && AppState.activeTcId !== _loadedTcId) {
+      try {
+        const tc = await window.api.db.getTestCaseById(AppState.activeTcId)
+        if (tc) {
+          let loaded = []
+          if (tc.steps_json && tc.steps_json !== '[]') {
+            try { loaded = JSON.parse(tc.steps_json) } catch {}
+          }
+          _steps      = loaded
+          _stepSt     = {}
+          _loadedTcId = AppState.activeTcId
+          if (!AppState.inspector.pkg && tc.dsl_yaml) {
+            const pkgMatch = tc.dsl_yaml.match(/^appId:\s*(\S+)/m)
+            if (pkgMatch) AppState.inspector.pkg = pkgMatch[1]
+          }
+        }
+      } catch (e) {
+        console.warn('[inspector] Failed to load TC steps:', e.message)
+      }
+    }
+    // Tidak ada reset saat pindah halaman — steps tetap ada
 
     ta.innerHTML = `
       <button class="btn btn-g btn-sm" id="btn-run-steps" onclick="PageInspector.runSteps()">
@@ -94,7 +119,7 @@ window.PageInspector = (() => {
       banner.innerHTML = `
         <i class="bi bi-pencil-fill"></i>
         <span>Mode Edit: <b>${esc(AppState.activeTcName)}</b> — ubah steps lalu klik <b>Update TC</b></span>
-        <button onclick="AppState.activeTcId=null;AppState.activeTcName=null;PageInspector.render()"
+        <button onclick="AppState.activeTcId=null;AppState.activeTcName=null;window.PageInspector._cancelEditMode()"
           style="margin-left:auto;background:none;border:none;cursor:pointer;
             color:var(--green);font-size:12px;opacity:.7">
           <i class="bi bi-x"></i> Batalkan edit
@@ -1581,6 +1606,7 @@ window.PageInspector = (() => {
         description: desc,
         dsl_yaml:    dsl,
         steps_yaml:  dsl,
+        steps_json:  JSON.stringify(_steps),   // simpan raw steps untuk reload
         steps_count: _steps.length,
         status:      'pending',
       })
@@ -1588,9 +1614,10 @@ window.PageInspector = (() => {
       // Clear edit mode
       AppState.activeTcId   = null
       AppState.activeTcName = null
+      _loadedTcId           = null
 
       toast(`✅ Test Case "${name}" berhasil diupdate!`, 'success')
-      addDebugLog('pass', `TC updated: ${name}`)
+      addDebugLog('pass', `TC updated: ${name} (${_steps.length} steps)`)
 
       // Update tombol di topbar
       const btn = document.getElementById('btn-save-tc')
@@ -1599,7 +1626,6 @@ window.PageInspector = (() => {
         btn.style.color = ''
         btn.innerHTML = '<i class="bi bi-save"></i> Simpan ke TC'
       }
-      // Hapus banner edit mode
       document.getElementById('edit-mode-banner')?.remove()
 
     } catch (err) {
@@ -1866,6 +1892,8 @@ window.PageInspector = (() => {
           description: desc,
           status:      'pending',
           dsl_yaml:    dsl,
+          steps_json:  JSON.stringify(_steps),
+          steps_count: _steps.length,
           priority:    'medium',
         })
       } else if (secId === '__new__') {
@@ -1877,7 +1905,8 @@ window.PageInspector = (() => {
         const dsl = generateDSL({ name, package: pkg, appId: pkg }, _steps)
         await window.api.db.saveTestCase({
           section_id:  secId,
-          name, description: desc, status: 'pending', dsl_yaml: dsl, priority: 'medium',
+          name, description: desc, status: 'pending', dsl_yaml: dsl,
+          steps_json: JSON.stringify(_steps), steps_count: _steps.length, priority: 'medium',
         })
       } else {
         // Normal save
@@ -1886,7 +1915,8 @@ window.PageInspector = (() => {
         await window.api.db.saveTestCase({
           section_id:  secId || null,
           suite_id:    secId ? undefined : suiteId,
-          name, description: desc, status: 'pending', dsl_yaml: dsl, priority: 'medium',
+          name, description: desc, status: 'pending', dsl_yaml: dsl,
+          steps_json: JSON.stringify(_steps), steps_count: _steps.length, priority: 'medium',
         })
       }
 
@@ -1990,5 +2020,13 @@ window.PageInspector = (() => {
     onStepDragStart, onStepDragOver, onStepDrop, onStepDragEnd,
     // saveToTC helpers — dipanggil dari inline HTML modal
     _onSaveProjChange, _onSaveSuiteChange, _doSaveTC, _doUpdateTC,
+    _cancelEditMode: function() {
+      // Hanya clear state edit TC — steps TIDAK dihapus
+      // User bisa terus edit atau buat TC baru dari steps yang ada
+      AppState.activeTcId   = null
+      AppState.activeTcName = null
+      _loadedTcId           = null
+      PageInspector.render()
+    },
   }
 })()

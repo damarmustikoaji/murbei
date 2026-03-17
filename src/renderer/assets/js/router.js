@@ -51,7 +51,12 @@
 
     // Render page
     try {
-      PAGES[page].fn()
+      const result = PAGES[page].fn()
+      if (result && typeof result.catch === 'function') {
+        result.catch(err => {
+          console.error('[router] async render error:', err)
+        })
+      }
     } catch (err) {
       console.error('[router] render error:', err)
       const area = document.getElementById('content-area')

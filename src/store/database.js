@@ -294,21 +294,27 @@ const TestCases = {
     if (!cols.includes('description')) db.prepare("ALTER TABLE test_cases ADD COLUMN description TEXT DEFAULT ''").run()
     if (!cols.includes('priority'))    db.prepare("ALTER TABLE test_cases ADD COLUMN priority    TEXT DEFAULT 'medium'").run()
     if (!cols.includes('suite_id'))    db.prepare("ALTER TABLE test_cases ADD COLUMN suite_id    TEXT").run()
+    if (!cols.includes('steps_json'))  db.prepare("ALTER TABLE test_cases ADD COLUMN steps_json  TEXT DEFAULT '[]'").run()
 
     const existing = this.getById(tc.id)
     const tags     = JSON.stringify(Array.isArray(tc.tags) ? tc.tags : [])
-    const stepsYaml = tc.steps_yaml || tc.dsl_yaml || ''
-    const dslYaml   = tc.dsl_yaml   || tc.steps_yaml || ''
-    const stepsCount = tc.steps_count || (stepsYaml ? stepsYaml.split('\n- ').length - 1 : 0)
+    const stepsYaml  = tc.steps_yaml || tc.dsl_yaml || ''
+    const dslYaml    = tc.dsl_yaml   || tc.steps_yaml || ''
+    const stepsJson  = tc.steps_json
+      ? (typeof tc.steps_json === 'string' ? tc.steps_json : JSON.stringify(tc.steps_json))
+      : '[]'
+    const stepsCount = tc.steps_count
+      || (Array.isArray(tc.steps_json) ? tc.steps_json.length : 0)
+      || (stepsYaml ? stepsYaml.split('\n- ').length - 1 : 0)
 
     if (existing) {
       db.prepare(`
         UPDATE test_cases
-        SET name=?, description=?, tags=?, steps_yaml=?, dsl_yaml=?, status=?,
+        SET name=?, description=?, tags=?, steps_yaml=?, dsl_yaml=?, steps_json=?, status=?,
             priority=?, steps_count=?, suite_id=?, updated_at=?
         WHERE id=?
       `).run(
-        tc.name, tc.description || '', tags, stepsYaml, dslYaml,
+        tc.name, tc.description || '', tags, stepsYaml, dslYaml, stepsJson,
         tc.status || 'pending', tc.priority || 'medium', stepsCount,
         tc.suite_id || null, nowIso(), existing.id
       )
@@ -317,8 +323,8 @@ const TestCases = {
       const id = tc.id || generateId('tc-')
       db.prepare(`
         INSERT INTO test_cases
-          (id, section_id, suite_id, name, description, tags, steps_yaml, dsl_yaml, status, priority, steps_count)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+          (id, section_id, suite_id, name, description, tags, steps_yaml, dsl_yaml, steps_json, status, priority, steps_count)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
       `).run(
         id,
         tc.section_id || null,
@@ -328,6 +334,7 @@ const TestCases = {
         tags,
         stepsYaml,
         dslYaml,
+        stepsJson,
         tc.status   || 'pending',
         tc.priority || 'medium',
         stepsCount
