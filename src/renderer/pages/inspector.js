@@ -308,30 +308,28 @@ window.PageInspector = (() => {
           </div>
 
           <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;padding:8px;gap:8px">
-            <!-- Screenshot wrap: position relative, ukuran mengikuti gambar -->
-            <div id="screen-wrap"
-              style="position:relative;flex-shrink:0;align-self:center;
-                     max-height:280px;max-width:100%;
-                     background:#111;border-radius:8px;cursor:crosshair;
-                     display:inline-block;line-height:0;min-width:160px;min-height:120px;">
-              <!-- Placeholder: absolute center, hanya tampil saat tidak ada screenshot -->
+            <!-- Screenshot area: fixed height container, gambar di-center di dalamnya -->
+            <div style="flex-shrink:0;height:280px;display:flex;align-items:center;justify-content:center;
+                        background:#111;border-radius:8px;overflow:hidden;position:relative;cursor:crosshair"
+                 id="screen-wrap">
+              <!-- Placeholder: tampil saat belum ada screenshot -->
               <div id="screen-placeholder"
-                style="position:absolute;inset:0;display:flex;flex-direction:column;
-                       align-items:center;justify-content:center;
+                style="display:flex;flex-direction:column;align-items:center;justify-content:center;
                        color:rgba(255,255,255,.4);font-size:11px;text-align:center;
-                       padding:20px;line-height:1.5;pointer-events:none">
+                       padding:20px;line-height:1.5;pointer-events:none;position:relative;z-index:1">
                 <i class="bi bi-phone" style="font-size:2rem;display:block;margin-bottom:8px;opacity:.5"></i>
                 Hubungkan device dan klik <b style="color:rgba(255,255,255,.6)">Refresh</b>
               </div>
-              <!-- img: block element, menentukan ukuran wrap saat screenshot ada -->
+              <!-- img: di-center dalam container, tinggi max 280px -->
               <img id="screen-img"
                 style="display:none;max-height:280px;max-width:100%;
-                       width:auto;height:auto;border-radius:6px;vertical-align:top;
+                       width:auto;height:auto;border-radius:6px;
+                       position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
                        user-select:none;-webkit-user-drag:none;"
                 alt="Device screen" draggable="false">
-              <!-- Overlay: hanya aktif saat screenshot ada -->
+              <!-- Overlay: di-set oleh JS persis sama ukuran+posisi img -->
               <div id="screen-overlay"
-                style="position:absolute;top:0;left:0;pointer-events:none;cursor:crosshair;"></div>
+                style="position:absolute;pointer-events:none;cursor:crosshair;z-index:2"></div>
             </div>
 
             <!-- Left tabs: XML / Detail / Debug -->
@@ -1072,26 +1070,32 @@ window.PageInspector = (() => {
    * Simpan di _imgW/_imgH dan juga posisi offset dalam container.
    */
   function _updateImgDimensions() {
-    const img = document.getElementById('screen-img')
-    if (!img || img.style.display === 'none') return
+    const img  = document.getElementById('screen-img')
+    const wrap = document.getElementById('screen-wrap')
+    if (!img || img.style.display === 'none' || !wrap) return
 
-    const rect = img.getBoundingClientRect()
-    const newW = Math.round(rect.width)
-    const newH = Math.round(rect.height)
+    const imgRect  = img.getBoundingClientRect()
+    const wrapRect = wrap.getBoundingClientRect()
+
+    const newW = Math.round(imgRect.width)
+    const newH = Math.round(imgRect.height)
+
+    // Hitung posisi img relatif terhadap wrap
+    const offsetLeft = imgRect.left - wrapRect.left
+    const offsetTop  = imgRect.top  - wrapRect.top
 
     const overlay     = document.getElementById('screen-overlay')
     const placeholder = document.getElementById('screen-placeholder')
 
     if (overlay) {
-      overlay.style.top          = '0px'
-      overlay.style.left         = '0px'
-      overlay.style.width        = rect.width  + 'px'
-      overlay.style.height       = rect.height + 'px'
+      overlay.style.left          = offsetLeft + 'px'
+      overlay.style.top           = offsetTop  + 'px'
+      overlay.style.width         = imgRect.width  + 'px'
+      overlay.style.height        = imgRect.height + 'px'
       overlay.style.pointerEvents = 'auto'
       overlay.style.cursor        = 'crosshair'
     }
 
-    // Sembunyikan placeholder saat screenshot ada
     if (placeholder) placeholder.style.display = 'none'
 
     if (newW !== _imgW || newH !== _imgH) {
