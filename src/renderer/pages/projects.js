@@ -203,7 +203,7 @@ window.PageProjects = (() => {
 
     <!-- Modal overlay -->
     <div id="proj-modal-overlay" style="display:none;position:fixed;inset:0;
-      background:rgba(0,0,0,.4);z-index:1000;display:flex;align-items:center;justify-content:center">
+      background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center">
     </div>`
 
     // Add hover effect for project delete buttons
@@ -225,6 +225,7 @@ window.PageProjects = (() => {
   function showModal(type, parentId) {
     const overlay = document.getElementById('proj-modal-overlay')
     if (!overlay) return
+    overlay.style.display = 'flex'
 
     const configs = {
       project: {

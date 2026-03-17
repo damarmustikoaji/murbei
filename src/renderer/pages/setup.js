@@ -18,10 +18,10 @@ window.PageSetup = (() => {
   async function render() {
     const content = document.getElementById('content-area')
     const ta      = document.getElementById('topbar-actions')
-    ta.innerHTML = `
-      <button class="btn btn-p btn-sm" id="setup-start-btn" onclick="PageSetup.startInstall()">
-        <i class="bi bi-lightning-charge-fill"></i> Mulai Setup Otomatis
-      </button>`
+    // ta.innerHTML = `
+    //   <button class="btn btn-p btn-sm" id="setup-start-btn" onclick="PageSetup.startInstall()">
+    //     <i class="bi bi-lightning-charge-fill"></i> Mulai Setup Otomatis
+    //   </button>`
 
     content.innerHTML = `
     <div style="max-width:600px;margin:0 auto;padding:10px 0">

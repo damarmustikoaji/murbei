@@ -5,11 +5,7 @@ window.PageDashboard = (() => {
   async function render() {
     const content = document.getElementById('content-area')
     const ta      = document.getElementById('topbar-actions')
-    ta.innerHTML  = `
-      <button class="btn btn-d btn-sm" id="dash-proj-select"></button>
-      <button class="btn btn-p btn-sm" onclick="navigate('testrun')">
-        <i class="bi bi-play-fill"></i> Run Test
-      </button>`
+    ta.innerHTML  = `<button class="btn btn-d btn-sm" id="dash-proj-select"></button>`
 
     content.innerHTML = `<div class="loading-screen"><div class="loading-icon"><i class="bi bi-arrow-clockwise"></i></div><div>Memuat dashboard...</div></div>`
 
