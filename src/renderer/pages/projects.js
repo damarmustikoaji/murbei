@@ -604,141 +604,307 @@ window.PageProjects = (() => {
 /* pages/testrun.js */
 window.PageTestRun = (() => {
   'use strict'
-  let _planType = 'smoke', _planName = 'Smoke Test Run', _selTCs = new Set(), _evidenceTab = 'log'
+  let _planType = 'smoke'
+  let _planName = 'Smoke Test Run'
+  let _selTCs   = new Set()
+  let _allTCs   = []
+  let _projects = []
+  let _selProj  = null
 
+  // ── Render ─────────────────────────────────────────────────
   async function render() {
     const content = document.getElementById('content-area')
     const ta      = document.getElementById('topbar-actions')
     content.className = 'content-area no-pad'
     ta.innerHTML = `
-      <button class="btn btn-d btn-sm" onclick="toast('💾 Plan disimpan')"><i class="bi bi-save"></i> Simpan</button>
-      <button class="btn btn-p btn-sm" id="run-btn" onclick="PageTestRun.startRun()"><i class="bi bi-play-fill"></i> Jalankan</button>`
+      <button class="btn btn-p btn-sm" id="run-btn" onclick="PageTestRun.startRun()">
+        <i class="bi bi-play-fill"></i> Jalankan
+      </button>`
 
-    const proj = AppState.cache.activeProj
-    const all  = proj ? (await getAll(proj.id)) : []
-    const sel  = all.filter(t => _selTCs.has(t.id))
+    // Load projects
+    _projects = await window.api.db.getProjects().catch(() => [])
+    if (!_selProj && _projects.length) _selProj = _projects[0].id
+
+    // Load semua TC dari project yang dipilih (termasuk suite langsung)
+    _allTCs = _selProj ? await getAll(_selProj) : []
+
+    // Load evidence dir dari settings
+    const evidenceDir = await window.api.db.getSetting('evidence_dir').catch(() => null) || ''
+
+    const envs = await window.api.db.getEnvs().catch(() => [])
+    const activeEnv = envs.find(e => e.is_active) || envs[0] || null
 
     content.innerHTML = `
-    <div class="run-wrap">
-      <div class="run-L">
-        <div class="panel" style="flex:1">
-          <div class="ph"><div class="ph-title"><i class="bi bi-ui-checks"></i> Pilih TC</div></div>
-          <div style="padding:6px 8px;border-bottom:1px solid var(--border)">
-            <input type="text" class="w100" placeholder="🔍 Filter..." style="font-size:11px">
-          </div>
-          <div id="tc-pick" style="overflow-y:auto;flex:1">${renderPicker(all)}</div>
-          <div class="pf flex ic jb xs muted">
-            <span><i class="bi bi-check2-square"></i> ${_selTCs.size} dipilih</span>
-            <div class="flex g4">
-              <button class="btn btn-xs btn-gh" onclick="PageTestRun.selAll(true,${JSON.stringify(all.map(t=>t.id))})">Semua</button>
-              <button class="btn btn-xs btn-gh" onclick="PageTestRun.selAll(false,[])">Hapus</button>
-            </div>
+    <div style="display:flex;height:calc(100vh - var(--tb-h));min-height:0;overflow:hidden">
+
+      <!-- Kiri: Pilih TC -->
+      <div style="width:240px;flex-shrink:0;border-right:1px solid var(--border);
+        display:flex;flex-direction:column;overflow:hidden;background:var(--surface)">
+
+        <!-- Project selector -->
+        <div style="padding:8px 10px;border-bottom:1px solid var(--border)">
+          <label style="font-size:10px;font-weight:600;color:var(--text3);
+            text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px">
+            Project
+          </label>
+          <select style="width:100%;font-size:11px" onchange="PageTestRun.selectProj(this.value)">
+            ${_projects.length
+              ? _projects.map(p => `<option value="${p.id}" ${p.id===_selProj?'selected':''}>
+                  ${esc(p.name)}</option>`).join('')
+              : '<option value="">Belum ada project</option>'}
+          </select>
+        </div>
+
+        <!-- Search -->
+        <div style="padding:6px 8px;border-bottom:1px solid var(--border)">
+          <input type="text" id="tc-filter" style="width:100%;font-size:11px"
+            placeholder="🔍 Filter test case..."
+            oninput="PageTestRun.filterTCs(this.value)">
+        </div>
+
+        <!-- TC list -->
+        <div id="tc-pick" style="flex:1;overflow-y:auto">${renderPicker(_allTCs)}</div>
+
+        <!-- Footer -->
+        <div style="padding:6px 10px;border-top:1px solid var(--border);background:var(--surface2);
+          display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:11px;color:var(--text3)">
+            <i class="bi bi-check2-square"></i> ${_selTCs.size} dipilih
+          </span>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-xs btn-gh"
+              onclick="PageTestRun.selAll(true)">Semua</button>
+            <button class="btn btn-xs btn-gh"
+              onclick="PageTestRun.selAll(false)">Clear</button>
           </div>
         </div>
       </div>
 
-      <div class="run-C">
-        <div class="card">
-          <div class="flex ic jb mb8">
-            <div class="card-title"><i class="bi bi-sliders2"></i> Tipe Run</div>
-            <div id="run-badge" class="badge b-pend" style="display:none"><i class="bi bi-circle-fill" style="font-size:7px"></i> Idle</div>
+      <!-- Tengah: Konfigurasi -->
+      <div style="width:320px;flex-shrink:0;border-right:1px solid var(--border);
+        overflow-y:auto;background:var(--surface)">
+        <div style="padding:12px 14px">
+
+          <!-- Tipe Run -->
+          <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;
+            letter-spacing:.4px;margin-bottom:8px">Tipe Run</div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">
+            ${[['smoke','🔥 Smoke'],['sanity','✅ Sanity'],['regression','🔄 Regression'],
+               ['full','📦 Full'],['custom','🎯 Custom']].map(([k,l]) =>
+              `<button class="btn btn-sm" onclick="PageTestRun.setType('${k}')"
+                style="font-size:11px;${_planType===k
+                  ? 'background:var(--blue);color:#fff;border-color:var(--blue)'
+                  : 'background:var(--surface2);color:var(--text2)'}">
+                ${l}
+              </button>`).join('')}
           </div>
-          <div class="flex g6 wrap mb8">
-            ${[['smoke','🔥 Smoke'],['sanity','✅ Sanity'],['regression','🔄 Regression'],['full','📦 Full'],['custom','🎯 Custom']]
-              .map(([k,l]) => `<button class="rtb rtb-${k} ${_planType===k?'sel':''}" onclick="PageTestRun.setType('${k}')">${l}</button>`).join('')}
+
+          <!-- Nama Run -->
+          <div style="margin-bottom:12px">
+            <label style="font-size:10px;font-weight:600;color:var(--text3);
+              text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px">
+              Nama Run
+            </label>
+            <input type="text" id="run-name" value="${esc(_planName)}"
+              oninput="PageTestRun._planName=this.value"
+              style="width:100%;font-size:12px">
           </div>
-          <div class="r2">
-            <div class="field"><label class="fl">Nama Run</label>
-              <input type="text" class="w100" value="${esc(_planName)}" oninput="PageTestRun._planName=this.value"></div>
-            <div class="field"><label class="fl">Environment</label>
-              <select class="w100"><option>${esc(AppState.activeEnv?.name||'Default')}</option></select></div>
+
+          <!-- Device -->
+          <div style="margin-bottom:12px">
+            <label style="font-size:10px;font-weight:600;color:var(--text3);
+              text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px">
+              Device
+            </label>
+            ${AppState.connectedDevice
+              ? `<div style="background:var(--green-bg);border:1px solid rgba(42,157,92,.2);
+                  border-radius:6px;padding:6px 10px;font-size:11px;font-family:var(--font-mono);
+                  color:var(--green)">
+                  <i class="bi bi-phone-fill"></i> ${esc(AppState.connectedDevice.model||AppState.connectedDevice.serial)}
+                </div>`
+              : `<div style="background:var(--yellow-bg);border:1px solid rgba(196,125,14,.2);
+                  border-radius:6px;padding:6px 10px;font-size:11px;color:var(--yellow)">
+                  <i class="bi bi-exclamation-triangle"></i> Belum ada device.
+                  <span style="cursor:pointer;text-decoration:underline"
+                    onclick="navigate('inspector')">Konek di Inspector →</span>
+                </div>`}
           </div>
-          <div class="pbar mt8"><div class="pbar-fill" id="run-pbar" style="width:0%"></div></div>
-        </div>
-        <div class="panel" style="flex:1">
-          <div class="ph">
-            <div class="ph-title"><i class="bi bi-list-check"></i> Hasil TC</div>
-            <div class="flex ic g6">
-              <span class="badge b-run">${sel.length} TC</span>
-              <button class="btn btn-xs btn-gh" onclick="PageTestRun.expandAll()"><i class="bi bi-layout-split"></i></button>
+
+          <!-- Environment -->
+          <div style="margin-bottom:12px">
+            <label style="font-size:10px;font-weight:600;color:var(--text3);
+              text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px">
+              Environment
+            </label>
+            <select id="run-env" style="width:100%;font-size:11px">
+              <option value="">-- Tidak ada --</option>
+              ${envs.map(e => `<option value="${e.id}" ${e.is_active?'selected':''}>
+                ${esc(e.name)}</option>`).join('')}
+            </select>
+          </div>
+
+          <div style="height:1px;background:var(--border);margin:14px 0"></div>
+
+          <!-- Evidence -->
+          <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;
+            letter-spacing:.4px;margin-bottom:8px">
+            <i class="bi bi-folder-fill" style="color:var(--yellow)"></i> Evidence
+          </div>
+
+          <!-- Evidence Dir -->
+          <div style="margin-bottom:10px">
+            <label style="font-size:10px;font-weight:600;color:var(--text2);
+              display:block;margin-bottom:4px">Folder Simpan Evidence</label>
+            <div style="display:flex;gap:5px;align-items:center">
+              <input type="text" id="evidence-dir-input" value="${esc(evidenceDir)}"
+                placeholder="~/Desktop/testpilot-evidence"
+                readonly style="flex:1;font-size:10px;font-family:var(--font-mono);
+                  background:var(--surface2);cursor:pointer"
+                onclick="PageTestRun.pickEvidenceDir()">
+              <button class="btn btn-d btn-sm" onclick="PageTestRun.pickEvidenceDir()"
+                title="Pilih folder">
+                <i class="bi bi-folder2-open"></i>
+              </button>
+            </div>
+            <div style="font-size:10px;color:var(--text3);margin-top:3px">
+              Evidence disimpan di: <code style="font-family:var(--font-mono);font-size:9px">
+              ${esc(evidenceDir || '~/Desktop/testpilot-evidence')}/[nama-run]/</code>
             </div>
           </div>
-          <div class="pb" id="tc-results">
-            ${sel.length ? sel.map((tc,i) => renderTcRow(tc,i)).join('') :
-            `<div class="empty-s"><div class="ei"><i class="bi bi-clipboard2-check"></i></div><h3>Belum ada TC</h3><p>Centang dari panel kiri.</p></div>`}
-          </div>
-        </div>
-      </div>
 
-      <div class="run-R">
-        <div class="card">
-          <div class="card-title mb8"><i class="bi bi-gear-wide-connected"></i> Konfigurasi</div>
-          <div class="r2 mb6">
-            <div class="field"><label class="fl">Device</label>
-              <select class="w100"><option>📱 ${esc(AppState.connectedDevice?.model||'emulator-5554')}</option><option>☁ AWS Device Farm</option></select></div>
-            <div class="field"><label class="fl">Mode</label>
-              <select class="w100"><option>Sequential</option><option>Retry 1x</option></select></div>
-          </div>
-          <div class="slbl mb5">Evidence</div>
-          <div style="display:flex;flex-direction:column;gap:5px">
-            ${[['Screenshot per step','checked'],['Screenshot saat gagal',''],['Video recording','']].map(([l,c]) =>
-              `<label class="flex ic g6" style="cursor:pointer;font-size:11px">
-                <input type="checkbox" ${c} style="accent-color:var(--blue)"> ${l}
+          <!-- Evidence options -->
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${[
+              ['ev-screenshot-step', 'Screenshot per step', true],
+              ['ev-screenshot-fail', 'Screenshot saat gagal', false],
+            ].map(([id, label, checked]) => `
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:11px">
+                <input type="checkbox" id="${id}" ${checked?'checked':''}
+                  style="accent-color:var(--blue)">
+                <span>${label}</span>
               </label>`).join('')}
           </div>
+
         </div>
-        <div class="panel" style="flex:1">
-          <div class="ph"><div class="ph-title"><i class="bi bi-terminal-fill"></i> Run Log</div>
-            <button class="btn btn-xs btn-gh" onclick="document.getElementById('main-log').innerHTML=''"><i class="bi bi-trash3"></i></button>
+      </div>
+
+      <!-- Kanan: Hasil TC -->
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+        <div style="padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface);
+          display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px;font-weight:700">Hasil TC</span>
+            <span id="run-badge" style="display:none;font-size:10px;font-weight:600;
+              padding:2px 8px;border-radius:4px;background:var(--blue-bg);color:var(--blue)">
+              Running...
+            </span>
           </div>
-          <div id="main-log" class="log-wrap pb" style="flex:1">
-            <span class="ld">Log muncul saat test berjalan...</span>
+          <span style="font-size:11px;color:var(--text3)">${_selTCs.size} TC dipilih</span>
+        </div>
+
+        <!-- Progress bar -->
+        <div style="height:2px;background:var(--border);flex-shrink:0">
+          <div id="run-pbar" style="height:100%;width:0;background:var(--blue);transition:width .3s"></div>
+        </div>
+
+        <div id="tc-results" style="flex:1;overflow-y:auto;padding:12px 14px">
+          ${_selTCs.size
+            ? Array.from(_selTCs).map((id, i) => {
+                const tc = _allTCs.find(t => t.id === id)
+                return tc ? renderTcRow(tc, i) : ''
+              }).join('')
+            : `<div style="text-align:center;padding:48px 20px;color:var(--text3)">
+                <i class="bi bi-clipboard-check" style="font-size:2rem;display:block;
+                  margin-bottom:10px;opacity:.4"></i>
+                <div style="font-size:13px;font-weight:600;margin-bottom:4px">Belum ada TC</div>
+                <div style="font-size:11px">Centang TC dari panel kiri untuk menjalankan</div>
+              </div>`}
+        </div>
+
+        <!-- Run Log -->
+        <div style="height:160px;flex-shrink:0;border-top:1px solid var(--border);
+          background:#0d1117;display:flex;flex-direction:column">
+          <div style="padding:4px 12px;background:#161b22;border-bottom:1px solid #30363d;
+            display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:10px;font-weight:600;color:#8b949e">
+              <i class="bi bi-terminal"></i> Run Log
+            </span>
+            <button onclick="document.getElementById('main-log').innerHTML=''"
+              style="background:none;border:none;cursor:pointer;color:#8b949e;font-size:10px">
+              Clear
+            </button>
+          </div>
+          <div id="main-log" style="flex:1;overflow-y:auto;padding:8px 12px;
+            font-family:var(--font-mono);font-size:10px;line-height:1.7;color:#e6edf3">
+            <div style="color:#8b949e">Log muncul saat test berjalan...</div>
           </div>
         </div>
       </div>
     </div>`
   }
 
+  // ── TC Picker ───────────────────────────────────────────────
   function renderPicker(tcs) {
-    if (!tcs.length) return `<div class="empty-s" style="padding:14px"><p>Belum ada TC. Buat di Projects.</p></div>`
+    if (!tcs.length) return `
+      <div style="text-align:center;padding:24px 12px;color:var(--text3)">
+        <i class="bi bi-file-earmark-x" style="font-size:1.5rem;display:block;margin-bottom:8px;opacity:.4"></i>
+        <div style="font-size:11px">Belum ada TC.</div>
+        <button class="btn btn-d btn-sm" style="margin-top:8px" onclick="navigate('projects')">
+          Buat di Projects
+        </button>
+      </div>`
+
     return tcs.map(tc => `
-      <div class="tc-row" onclick="PageTestRun.togTC('${esc(tc.id)}')">
-        <input type="checkbox" ${_selTCs.has(tc.id)?'checked':''} onclick="event.stopPropagation();PageTestRun.togTC('${esc(tc.id)}')" style="accent-color:var(--blue)">
-        <div style="flex:1;min-width:0"><div class="tc-label">${esc(tc.name)}</div></div>
-        <span class="badge b-${esc(tc.status)}" style="font-size:9px">${esc(tc.status)}</span>
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;
+        cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;
+        background:${_selTCs.has(tc.id)?'var(--blue-bg)':'transparent'}"
+        onclick="PageTestRun.togTC('${esc(tc.id)}')">
+        <input type="checkbox" ${_selTCs.has(tc.id)?'checked':''}
+          onclick="event.stopPropagation();PageTestRun.togTC('${esc(tc.id)}')"
+          style="accent-color:var(--blue);flex-shrink:0">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;
+            white-space:nowrap;color:${_selTCs.has(tc.id)?'var(--blue)':'var(--text)'}">${esc(tc.name)}</div>
+          <div style="font-size:10px;color:var(--text3)">
+            ${tc.steps_count||0} steps · ${esc(tc.priority||'medium')}
+          </div>
+        </div>
       </div>`).join('')
   }
 
   function renderTcRow(tc, i) {
-    const st = AppState.runner.stepStatus?.[tc.id] || 'idle'
     return `
-    <div class="tc-result-row ${st==='run'?'rr-run':st==='pass'?'rr-pass':st==='fail'?'rr-fail':''}" id="tcr-${esc(tc.id)}">
-      <div class="tcr-header" onclick="toggleTcEvidence('${esc(tc.id)}')">
-        <div class="tcr-num ${st==='pass'?'rn-pass':st==='fail'?'rn-fail':st==='run'?'rn-run':''}">${i+1}</div>
-        <div class="step-drag" style="color:var(--border2)"><i class="bi bi-grip-vertical"></i></div>
-        <div class="tcr-name">${esc(tc.name)}</div>
-        <span class="badge ${st==='run'?'b-run':st==='pass'?'b-pass':st==='fail'?'b-fail':'b-skip'}">${st==='idle'?'Pending':st}</span>
-        <i class="bi bi-chevron-down tcr-expand" id="exp-${esc(tc.id)}"></i>
+    <div class="tc-result-row" id="tcr-${esc(tc.id)}"
+      style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;
+        background:var(--surface2);cursor:pointer"
+        onclick="PageTestRun.toggleEvidence('${esc(tc.id)}')">
+        <div id="tcr-num-${esc(tc.id)}"
+          style="width:20px;height:20px;border-radius:50%;background:var(--border);
+            color:var(--text3);font-size:10px;font-weight:700;display:flex;align-items:center;
+            justify-content:center;flex-shrink:0">${i+1}</div>
+        <div style="flex:1;font-size:12px;font-weight:600">${esc(tc.name)}</div>
+        <span id="tcr-badge-${esc(tc.id)}"
+          style="font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600;
+            background:var(--surface3);color:var(--text3)">pending</span>
+        <i class="bi bi-chevron-down" id="tcr-chev-${esc(tc.id)}"
+          style="font-size:10px;color:var(--text3);transition:transform .15s"></i>
       </div>
-      <div class="tcr-evidence" id="evd-${esc(tc.id)}">
-        <div style="text-align:center;padding:10px;color:var(--text3);font-size:11px">
+      <div id="tcr-evd-${esc(tc.id)}" style="display:none;padding:10px 12px;
+        border-top:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text3);text-align:center;padding:8px">
           <i class="bi bi-hourglass"></i> Evidence muncul setelah TC dijalankan.
         </div>
       </div>
     </div>`
   }
 
-  function toggleTcEvidence(id) {
-    const evd = document.getElementById('evd-'+id)
-    const exp = document.getElementById('exp-'+id)
-    if (!evd) return
-    const open = evd.classList.toggle('open')
-    if (exp) exp.classList.toggle('open', open)
-  }
-
-  function expandAll() {
-    document.querySelectorAll('.tcr-evidence').forEach(e => e.classList.add('open'))
-    document.querySelectorAll('.tcr-expand').forEach(e => e.classList.add('open'))
+  // ── Controls ────────────────────────────────────────────────
+  async function selectProj(id) {
+    _selProj = id
+    _selTCs.clear()
+    _allTCs = id ? await getAll(id) : []
+    render()
   }
 
   function togTC(id) {
@@ -747,107 +913,218 @@ window.PageTestRun = (() => {
     render()
   }
 
-  function selAll(yes, ids) {
-    if (yes) ids.forEach(id => _selTCs.add(id))
+  function selAll(yes) {
+    if (yes) _allTCs.forEach(tc => _selTCs.add(tc.id))
     else _selTCs.clear()
     render()
   }
 
   function setType(type) {
     _planType = type
+    const names = {smoke:'Smoke Test Run',sanity:'Sanity Test Run',
+      regression:'Regression Test Run',full:'Full Test Run',custom:'Custom Run'}
+    _planName = names[type] || 'Test Run'
     render()
   }
 
+  function filterTCs(q) {
+    const filtered = q
+      ? _allTCs.filter(tc => tc.name.toLowerCase().includes(q.toLowerCase()))
+      : _allTCs
+    const el = document.getElementById('tc-pick')
+    if (el) el.innerHTML = renderPicker(filtered)
+  }
+
+  function toggleEvidence(id) {
+    const evd  = document.getElementById('tcr-evd-'+id)
+    const chev = document.getElementById('tcr-chev-'+id)
+    if (!evd) return
+    const open = evd.style.display === 'none'
+    evd.style.display = open ? 'block' : 'none'
+    if (chev) chev.style.transform = open ? 'rotate(180deg)' : ''
+  }
+
+  async function pickEvidenceDir() {
+    const result = await window.api.system.openFileDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Pilih folder untuk menyimpan evidence',
+    }).catch(() => null)
+    if (result?.canceled || !result?.filePaths?.length) return
+    const dir = result.filePaths[0]
+    await window.api.db.setSetting('evidence_dir', dir)
+    const inp = document.getElementById('evidence-dir-input')
+    if (inp) inp.value = dir
+    toast(`✅ Evidence folder: ${dir}`)
+  }
+
+  // ── Run ─────────────────────────────────────────────────────
   async function startRun() {
     if (!_selTCs.size) { toast('⚠️ Pilih TC dulu', 'error'); return }
-    if (!AppState.connectedDevice) { toast('⚠️ Hubungkan device di Inspector dulu', 'error'); return }
 
-    const btn = document.getElementById('run-btn')
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Berjalan...' }
+    const serial = AppState.connectedDevice?.serial
+    if (!serial) { toast('⚠️ Hubungkan device di Inspector dulu', 'error'); return }
+
+    const sel = _allTCs.filter(t => _selTCs.has(t.id))
+    if (!sel.length) { toast('⚠️ TC tidak ditemukan', 'error'); return }
+
+    // Cek DSL
+    const noDSL = sel.filter(tc => !tc.dsl_yaml && !tc.steps_yaml)
+    if (noDSL.length) {
+      toast(`⚠️ ${noDSL.length} TC tidak punya steps. Buka di Inspector untuk tambah steps dulu.`, 'error')
+      return
+    }
+
+    const runName  = document.getElementById('run-name')?.value.trim() || _planName
+    const envId    = document.getElementById('run-env')?.value
+    const envs     = await window.api.db.getEnvs().catch(() => [])
+    const env      = envs.find(e => e.id === envId)
+    const envVars  = env?.vars || AppState.activeEnv?.vars || {}
+
+    const ssPerStep = document.getElementById('ev-screenshot-step')?.checked
+    const ssFail    = document.getElementById('ev-screenshot-fail')?.checked
+
+    // Evidence dir
+    const evidenceBase = await window.api.db.getSetting('evidence_dir').catch(() => null)
+      || (await window.api.system.getDataPath().catch(() => '')) + '/evidence'
+    const ts        = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)
+    const runFolder = `${evidenceBase}/${runName.replace(/\s+/g,'_')}_${ts}`
+
+    // UI setup
+    const btn   = document.getElementById('run-btn')
     const badge = document.getElementById('run-badge')
-    if (badge) { badge.style.display = 'flex'; badge.className = 'badge b-run'; badge.innerHTML = '<i class="bi bi-circle-fill" style="font-size:7px"></i> Running' }
+    const pbar  = document.getElementById('run-pbar')
+    if (btn)   { btn.disabled = true; btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Berjalan...' }
+    if (badge) { badge.style.display = 'inline-block'; badge.textContent = 'Running...' }
 
     const log = document.getElementById('main-log')
     const appendLog = (type, msg) => {
       if (!log) return
-      if (log.querySelector('.ld')) log.innerHTML = ''
+      const first = log.querySelector('div[style*="color:#8b949e"]')
+      if (first && first.textContent.includes('Log muncul')) log.innerHTML = ''
       const d = document.createElement('div')
-      d.className = 'l' + type[0]
-      d.textContent = msg
+      const colors = { pass:'#3fb950', fail:'#f85149', warn:'#d29922', info:'#e6edf3', head:'#58a6ff' }
+      d.style.cssText = `color:${colors[type]||'#e6edf3'};padding:1px 0`
+      d.textContent = `[${fmtTime()}] ${msg}`
       log.appendChild(d)
       log.scrollTop = 9999
     }
 
-    appendLog('info', `[${fmtTime()}] ▶ ${_planName}`)
-    appendLog('info', `[${fmtTime()}] Device: ${AppState.connectedDevice.serial}`)
-
-    const proj = AppState.cache.activeProj
-    const all  = proj ? (await getAll(proj.id)) : []
-    const sel  = all.filter(t => _selTCs.has(t.id))
+    appendLog('head', `▶ ${runName}`)
+    appendLog('info', `Device: ${serial}`)
+    appendLog('info', `TC: ${sel.length} · Environment: ${env?.name || 'none'}`)
+    appendLog('info', `Evidence: ${runFolder}`)
 
     let pass = 0, fail = 0
-    for (const tc of sel) {
-      const row = document.getElementById('tcr-' + tc.id)
-      if (row) { row.className = 'tc-result-row rr-run'; row.querySelector('.tcr-num').className = 'tcr-num rn-run' }
-      appendLog('info', `[${fmtTime()}] ▶ ${tc.name}`)
 
-      const pb = document.getElementById('run-pbar')
-      if (pb) pb.style.width = Math.round((sel.indexOf(tc)+1)/sel.length*100) + '%'
+    for (let i = 0; i < sel.length; i++) {
+      const tc  = sel[i]
+      const dsl = tc.dsl_yaml || tc.steps_yaml || ''
+      if (!dsl) continue
 
-      // Simulate delay (real: would call window.api.runner.run)
-      await new Promise(r => setTimeout(r, 600))
+      // Update UI row ke running
+      const num   = document.getElementById('tcr-num-'+tc.id)
+      const badge_ = document.getElementById('tcr-badge-'+tc.id)
+      if (num)    num.style.cssText = 'width:20px;height:20px;border-radius:50%;background:var(--blue);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0'
+      if (badge_) { badge_.style.background='var(--blue-bg)'; badge_.style.color='var(--blue)'; badge_.textContent='running' }
+      if (pbar)   pbar.style.width = Math.round((i/sel.length)*100) + '%'
 
-      const ok = tc.status !== 'fail'
-      if (ok) pass++; else fail++
-      if (row) {
-        row.className = `tc-result-row ${ok?'rr-pass':'rr-fail'}`
-        row.querySelector('.tcr-num').className = `tcr-num ${ok?'rn-pass':'rn-fail'}`
+      appendLog('info', `▶ ${tc.name}`)
+
+      try {
+        await window.api.runner.run({
+          serial,
+          stepsYaml: dsl,
+          tcName:    tc.name,
+          tcId:      tc.id,
+          envVars,
+          noReset:           false,
+          noReinstallDriver: true,
+        })
+
+        pass++
+        if (num)    num.style.background = 'var(--green)'
+        if (badge_) { badge_.style.background='#dcfce7'; badge_.style.color='#16a34a'; badge_.textContent='PASS' }
+        appendLog('pass', `✅ PASS: ${tc.name}`)
+
         // Update evidence drawer
-        const evd = document.getElementById('evd-'+tc.id)
-        if (evd) {
-          evd.innerHTML = `
-          <div class="flex ic jb mb6">
-            <span class="xs muted fw6"><i class="bi bi-images"></i> Screenshots</span>
-            ${!ok ? `<button class="btn btn-xs btn-danger"><i class="bi bi-exclamation-triangle-fill"></i> Lihat Fail</button>` : ''}
-          </div>
-          <div class="ev-inline-grid">
-            ${Array.from({length:tc.steps_count||3},(_,si)=>`
-              <div class="ev-inline-item">
-                <div class="ev-thumb-sm">
-                  <i class="bi bi-${si===2&&!ok?'x-circle-fill':'check-circle'}" style="color:${si===2&&!ok?'var(--red)':'var(--text3)'};font-size:14px"></i>
-                  <div class="ev-dot-sm" style="background:${si===2&&!ok?'var(--red)':'var(--green)'}"></div>
-                </div>
-                <div class="ev-label-sm">step_0${si+1}</div>
-              </div>`).join('')}
-          </div>`
-          if (!ok) { evd.classList.add('open'); document.getElementById('exp-'+tc.id)?.classList.add('open') }
-        }
+        _updateEvidenceDrawer(tc.id, true, ssPerStep, runFolder, tc.name)
+
+      } catch (err) {
+        fail++
+        if (num)    num.style.background = 'var(--red)'
+        if (badge_) { badge_.style.background='#fee2e2'; badge_.style.color='#dc2626'; badge_.textContent='FAIL' }
+        appendLog('fail', `❌ FAIL: ${tc.name} — ${err.message}`)
+
+        // Auto expand fail
+        const evd = document.getElementById('tcr-evd-'+tc.id)
+        if (evd) { evd.style.display = 'block' }
+        const chev = document.getElementById('tcr-chev-'+tc.id)
+        if (chev) chev.style.transform = 'rotate(180deg)'
+
+        _updateEvidenceDrawer(tc.id, false, ssPerStep || ssFail, runFolder, tc.name)
       }
-      appendLog(ok?'pass':'fail', `[${fmtTime()}] ${ok?'✅ LULUS':'❌ GAGAL'}: ${tc.name}`)
     }
 
-    appendLog('pass', `[${fmtTime()}] Selesai: ${pass} lulus, ${fail} gagal`)
-    if (badge) { badge.className = 'badge b-pass'; badge.innerHTML = '<i class="bi bi-check-circle-fill"></i> Selesai' }
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-play-fill"></i> Jalankan' }
-    toast(fail ? `❌ ${fail} TC gagal` : '✅ Semua TC lulus!', fail ? 'error' : 'success')
+    if (pbar) pbar.style.width = '100%'
+    appendLog('head', `Selesai: ${pass} PASS, ${fail} FAIL`)
+    if (badge) { badge.textContent = fail ? `${fail} FAIL` : 'Selesai'; badge.style.background = fail ? '#fee2e2' : '#dcfce7'; badge.style.color = fail ? '#dc2626' : '#16a34a' }
+    if (btn)   { btn.disabled = false; btn.innerHTML = '<i class="bi bi-play-fill"></i> Jalankan' }
+    toast(fail ? `❌ ${fail} TC gagal, ${pass} lulus` : `✅ Semua ${pass} TC lulus!`, fail ? 'error' : 'success')
   }
 
+  function _updateEvidenceDrawer(tcId, ok, withScreenshot, runFolder, tcName) {
+    const evd = document.getElementById('tcr-evd-'+tcId)
+    if (!evd) return
+    evd.innerHTML = `
+      <div style="font-size:11px;color:var(--text2)">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <i class="bi bi-${ok?'check-circle-fill':'x-circle-fill'}"
+            style="color:${ok?'var(--green)':'var(--red)'}"></i>
+          <b>${ok?'PASS':'FAIL'}</b>
+        </div>
+        ${withScreenshot ? `
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px">
+            <i class="bi bi-folder2-open"></i> Evidence disimpan di:
+          </div>
+          <code style="font-size:9px;font-family:var(--font-mono);background:var(--surface2);
+            padding:3px 6px;border-radius:4px;display:block;word-break:break-all">
+            ${esc(runFolder)}/${esc(tcName.replace(/\s+/g,'_'))}/
+          </code>` : `
+          <div style="font-size:10px;color:var(--text3)">
+            Screenshot tidak diaktifkan untuk run ini.
+          </div>`}
+      </div>`
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────
   async function getAll(projId) {
-    const suites = await window.api.db.getSuites(projId)
+    if (!projId) return []
+    const suites = await window.api.db.getSuites(projId).catch(() => [])
     const result = []
     for (const s of suites) {
-      const secs = await window.api.db.getSections(s.id)
+      // TC langsung di suite (tanpa section)
+      try {
+        const suiteTCs = await window.api.db.getTestCasesBySuite(s.id)
+        result.push(...suiteTCs)
+      } catch {}
+      // TC di sections
+      const secs = await window.api.db.getSections(s.id).catch(() => [])
       for (const sec of secs) {
-        const tcs = await window.api.db.getTestCases(sec.id)
+        const tcs = await window.api.db.getTestCases(sec.id).catch(() => [])
         result.push(...tcs)
       }
     }
-    return result
+    // Deduplicate by id
+    const seen = new Set()
+    return result.filter(tc => { if (seen.has(tc.id)) return false; seen.add(tc.id); return true })
   }
 
-  return { render, togTC, selAll, setType, startRun, expandAll }
-})()
+  function fmtTime() {
+    return new Date().toLocaleTimeString('id-ID', {hour:'2-digit',minute:'2-digit',second:'2-digit'})
+  }
 
+  return { render, togTC, selAll, setType, startRun, selectProj, filterTCs, toggleEvidence, pickEvidenceDir }
+})()
 /* pages/reports.js */
 window.PageReports = (() => {
   async function render() {
@@ -985,58 +1262,108 @@ window.PageEnvironments = (() => {
 /* pages/settings.js */
 window.PageSettings = (() => {
   async function render() {
-    const content = document.getElementById('content-area')
-    const ta      = document.getElementById('topbar-actions')
-    ta.innerHTML  = `<button class="btn btn-p btn-sm" onclick="toast('💾 Settings disimpan')"><i class="bi bi-save"></i> Simpan</button>`
-    const dataPath = await window.api.system.getDataPath().catch(() => '~')
-    const version  = await window.api.system.getAppVersion().catch(() => '1.0.0')
-    const deps     = await window.api.setup.checkDeps().catch(() => ({}))
+    const content    = document.getElementById('content-area')
+    const ta         = document.getElementById('topbar-actions')
+    ta.innerHTML     = ''
+    const dataPath   = await window.api.system.getDataPath().catch(() => '~')
+    const version    = await window.api.system.getAppVersion().catch(() => '1.0.0')
+    const deps       = await window.api.setup.checkDeps().catch(() => ({}))
+    const evidenceDir = await window.api.db.getSetting('evidence_dir').catch(() => null) || ''
 
     content.innerHTML = `
-    <div style="max-width:520px">
+    <div style="max-width:540px;padding:16px">
+
+      <!-- Evidence & Storage -->
       <div class="card mb10">
-        <div class="card-title mb10"><i class="bi bi-gear"></i> General</div>
-        ${[['Default Timeout (ms)','number','5000'],['Screenshot Quality','select',['High','Medium','Low']],
-           ['Log Level','select',['Info','Debug','Verbose']]].map(([l,t,v]) => `
-          <div class="field mb8"><label class="fl">${l}</label>
-            ${t==='select'?`<select class="w100">${v.map(o=>`<option>${o}</option>`).join('')}</select>`:
-            `<input type="${t}" class="w100" value="${v}"}`}>
-          </div>`).join('')}
+        <div class="card-title mb10"><i class="bi bi-folder-fill" style="color:var(--yellow)"></i> Evidence & Storage</div>
+
+        <div class="field mb8">
+          <label class="fl">Folder Evidence</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="text" id="ev-dir" value="${esc(evidenceDir)}" readonly
+              placeholder="${esc(dataPath)}/evidence"
+              style="flex:1;font-size:10.5px;font-family:var(--font-mono);cursor:pointer;background:var(--surface2)"
+              onclick="PageSettings.pickEvidenceDir()">
+            <button class="btn btn-d btn-sm" onclick="PageSettings.pickEvidenceDir()">
+              <i class="bi bi-folder2-open"></i>
+            </button>
+            ${evidenceDir ? `
+            <button class="btn btn-d btn-sm" onclick="window.api.system.openExternal('${esc(evidenceDir)}')"
+              title="Buka di Finder">
+              <i class="bi bi-box-arrow-up-right"></i>
+            </button>` : ''}
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:3px">
+            Screenshot & log dari Test Run disimpan di folder ini, diorganisir per run.
+          </div>
+        </div>
+
+        <div class="field mb8">
+          <label class="fl">Database</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <code class="mono xs" style="flex:1;background:var(--surface2);
+              padding:5px 9px;border-radius:6px;font-size:10px">
+              ${esc(dataPath)}/data/testpilot.db
+            </code>
+            <button class="btn btn-d btn-sm" onclick="window.api.system.openExternal('${esc(dataPath)}')">
+              <i class="bi bi-folder2-open"></i>
+            </button>
+          </div>
+        </div>
       </div>
+
+      <!-- Binary Paths -->
       <div class="card mb10">
         <div class="card-title mb4"><i class="bi bi-wrench-adjustable"></i> Binary Paths</div>
-        <div class="card-sub">Diisi otomatis oleh Setup Wizard</div>
+        <div class="card-sub" style="margin-bottom:10px">Diisi otomatis oleh Setup Wizard</div>
         ${[['ADB', deps.adb?.path||'–', deps.adb?.ok],
            ['Java', deps.java?.path||'–', deps.java?.ok],
            ['Maestro', deps.maestro?.path||'–', deps.maestro?.ok]].map(([l,v,ok]) => `
-          <div class="field mb8"><label class="fl">${l} ${ok?'<span class="badge b-pass" style="font-size:9px">OK</span>':'<span class="badge b-fail" style="font-size:9px">Tidak ditemukan</span>'}</label>
-            <div class="flex g6">
-              <input type="text" value="${esc(v)}" class="w100 mono" style="font-size:10.5px" readonly>
-              <button class="btn btn-d btn-sm" onclick="toast('${ok?'✅ Binary OK':'⚠️ Binary tidak ditemukan. Jalankan Setup.'}')">
-                <i class="bi bi-${ok?'check2':'exclamation-triangle'}"></i>
-              </button>
+          <div class="field mb8">
+            <label class="fl">${l}
+              <span class="badge ${ok?'b-pass':'b-fail'}" style="font-size:9px;margin-left:4px">
+                ${ok?'OK':'Tidak ditemukan'}
+              </span>
+            </label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="text" value="${esc(v)}" class="w100 mono"
+                style="font-size:10px;flex:1" readonly>
             </div>
           </div>`).join('')}
-        <button class="btn btn-p btn-sm" onclick="navigate('setup')"><i class="bi bi-lightning-charge-fill"></i> Jalankan Setup Ulang</button>
+        <button class="btn btn-p btn-sm" onclick="navigate('setup')">
+          <i class="bi bi-lightning-charge-fill"></i> Jalankan Setup Ulang
+        </button>
       </div>
-      <div class="card mb10">
-        <div class="card-title mb4"><i class="bi bi-folder2"></i> Data & Storage</div>
-        <div class="flex ic g6 mb8">
-          <code class="mono xs" style="flex:1;background:var(--surface2);padding:5px 9px;border-radius:6px">${esc(dataPath)}/data/testpilot.db</code>
-          <button class="btn btn-d btn-sm" onclick="window.api.system.openExternal('${esc(dataPath)}')">
-            <i class="bi bi-folder2-open"></i> Buka
-          </button>
-        </div>
-      </div>
+
+      <!-- Tentang -->
       <div class="card">
         <div class="card-title mb8"><i class="bi bi-info-circle"></i> Tentang</div>
-        <div class="flex ic jb">
-          <div><div class="sm fw6">TestPilot v${esc(version)}</div>
-            <div class="xs muted">Electron · better-sqlite3 · Maestro CLI · ADB</div></div>
-          <button class="btn btn-d btn-sm" onclick="toast('✅ Ini versi terbaru')"><i class="bi bi-arrow-repeat"></i> Cek Update</button>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div class="sm fw6">TestPilot v${esc(version)}</div>
+            <div class="xs muted">Electron · better-sqlite3 · Maestro CLI · ADB</div>
+          </div>
+          <button class="btn btn-d btn-sm" onclick="navigate('setup')">
+            <i class="bi bi-arrow-repeat"></i> Cek Update
+          </button>
         </div>
       </div>
     </div>`
   }
-  return { render }
+
+  async function pickEvidenceDir() {
+    const result = await window.api.system.openFileDialog({
+      properties: ['openDirectory','createDirectory'],
+      title: 'Pilih folder untuk menyimpan evidence',
+    }).catch(() => null)
+    if (result?.canceled || !result?.filePaths?.length) return
+    const dir = result.filePaths[0]
+    await window.api.db.setSetting('evidence_dir', dir)
+    const inp = document.getElementById('ev-dir')
+    if (inp) inp.value = dir
+    toast(`✅ Evidence folder disimpan: ${dir}`)
+    render()
+  }
+
+  return { render, pickEvidenceDir }
 })()
