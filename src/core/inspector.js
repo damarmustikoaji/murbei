@@ -111,30 +111,65 @@ class Inspector {
    */
   async dumpXml(serial) {
     logger.debug(`Inspector XML dump: ${serial}`)
+    const adbPath        = getAdbPath()
+    const deviceXmlPath  = '/sdcard/testpilot_ui.xml'
+    const tmpFile        = path.join(os.tmpdir(), `testpilot_ui_${Date.now()}.xml`)
+
     try {
-      const deviceXmlPath = '/sdcard/testpilot_ui.xml'
-      const tmpFile = path.join(os.tmpdir(), `testpilot_ui_${Date.now()}.xml`)
+      // 1. Dump UI hierarchy via uiautomator
+      const dumpResult = await spawnAsync(
+        adbPath, ['-s', serial, 'shell', 'uiautomator', 'dump', deviceXmlPath],
+        { timeout: 15000 }
+      )
+      if (dumpResult.exitCode !== 0) {
+        throw new Error(`uiautomator dump failed: ${dumpResult.stderr}`)
+      }
 
-      // Dump UI hierarchy
-      await adbDevice(serial, ['shell', 'uiautomator', 'dump', deviceXmlPath], { timeout: 15000 })
+      // 2a. Coba exec-out cat (lebih reliable untuk emulator, tidak butuh pull)
+      let xmlContent = null
+      try {
+        const catResult = await spawnAsync(
+          adbPath, ['-s', serial, 'exec-out', 'cat', deviceXmlPath],
+          { timeout: 10000 }
+        )
+        if (catResult.exitCode === 0 && catResult.stdout.includes('<hierarchy')) {
+          xmlContent = catResult.stdout
+          logger.debug(`XML via exec-out cat: ${xmlContent.length} chars`)
+        }
+      } catch (e) {
+        logger.warn(`exec-out cat XML failed: ${e.message}`)
+      }
 
-      // Pull file ke local
-      const { exitCode } = await adbDevice(serial, ['pull', deviceXmlPath, tmpFile], { timeout: 10000 })
-      if (exitCode !== 0) throw new Error('Failed to pull XML from device')
+      // 2b. Fallback: pull ke tmpFile
+      if (!xmlContent) {
+        // Tunggu sebentar agar file flush
+        await new Promise(r => setTimeout(r, 400))
 
-      const xmlContent = fs.readFileSync(tmpFile, 'utf8')
-      fs.unlinkSync(tmpFile)
+        const pullResult = await spawnAsync(
+          adbPath, ['-s', serial, 'pull', deviceXmlPath, tmpFile],
+          { timeout: 15000 }
+        )
+        if (pullResult.exitCode !== 0) {
+          throw new Error(`pull XML failed: exit=${pullResult.exitCode} ${pullResult.stderr}`)
+        }
+        if (!fs.existsSync(tmpFile)) {
+          throw new Error(`XML file tidak ada setelah pull: ${tmpFile}`)
+        }
+        xmlContent = fs.readFileSync(tmpFile, 'utf8')
+        logger.debug(`XML via pull: ${xmlContent.length} chars`)
+      }
 
-      // Cleanup di device
-      adbDevice(serial, ['shell', 'rm', '-f', deviceXmlPath]).catch(() => {})
-
-      // Parse XML → element tree
+      // 3. Parse XML → element tree
       const tree = this._parseXmlToTree(xmlContent)
       return { xml: xmlContent, tree }
 
     } catch (err) {
       logger.error('XML dump failed:', { serial, error: err.message })
       throw new Error(`XML dump gagal: ${err.message}`)
+    } finally {
+      // Cleanup
+      try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile) } catch {}
+      adbDevice(serial, ['shell', 'rm', '-f', deviceXmlPath]).catch(() => {})
     }
   }
 
