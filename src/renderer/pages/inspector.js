@@ -246,27 +246,27 @@ window.PageInspector = (() => {
           </div>
 
           <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;padding:8px;gap:8px">
-            <!-- Screenshot: wrap pakai position relative, gambar menentukan ukuran container -->
+            <!-- Screenshot wrap: position relative, ukuran mengikuti gambar -->
             <div id="screen-wrap"
               style="position:relative;flex-shrink:0;align-self:center;
                      max-height:280px;max-width:100%;
-                     background:#111;border-radius:8px;overflow:hidden;cursor:crosshair;
-                     display:flex;align-items:center;justify-content:center;">
+                     background:#111;border-radius:8px;cursor:crosshair;
+                     display:inline-block;line-height:0;">
               <div id="screen-placeholder"
-                style="color:var(--text3);font-size:12px;text-align:center;padding:32px 20px;width:200px">
+                style="color:var(--text3);font-size:12px;text-align:center;padding:32px 20px;
+                       width:200px;display:flex;flex-direction:column;align-items:center">
                 <i class="bi bi-phone" style="font-size:2rem;display:block;margin-bottom:8px;opacity:.4"></i>
                 Hubungkan device dan klik <b>Refresh</b>
               </div>
-              <!-- img menentukan ukuran container — overlay di atasnya exact -->
+              <!-- img: block element, menentukan ukuran wrap -->
               <img id="screen-img"
                 style="display:none;max-height:280px;max-width:100%;
-                       width:auto;height:auto;border-radius:6px;
+                       width:auto;height:auto;border-radius:6px;vertical-align:top;
                        user-select:none;-webkit-user-drag:none;"
                 alt="Device screen" draggable="false">
               <!--
-                Overlay: pointer-events:auto agar semua interaksi (hover/click)
-                ditangani di sini. Event listener dipasang via JS di _attachScreenEvents().
-                Ini menghindari konflik antara onclick di screen-wrap dan click di hl-box.
+                Overlay: position absolute, akan di-set persis sama ukuran+posisi img oleh JS.
+                pointer-events:auto agar click/hover diterima.
               -->
               <div id="screen-overlay"
                 style="position:absolute;top:0;left:0;pointer-events:auto;cursor:crosshair;"></div>
@@ -714,6 +714,7 @@ window.PageInspector = (() => {
     const overlay = document.getElementById('screen-overlay')
     if (!overlay) return
 
+    // Selalu update dimensi sebelum render agar highlight presisi
     _updateImgDimensions()
 
     if (!_elements.length || !_imgW || !_imgH) {
@@ -721,10 +722,14 @@ window.PageInspector = (() => {
       return
     }
 
-    const scaleX = _imgW / _screenW
-    const scaleY = _imgH / _screenH
+    // Gunakan actual rendered image size dari DOM untuk scale yang akurat
+    const img = document.getElementById('screen-img')
+    const imgW = img ? Math.round(img.getBoundingClientRect().width)  : _imgW
+    const imgH = img ? Math.round(img.getBoundingClientRect().height) : _imgH
 
-    // Hapus boxes lama, biarkan overlay-level listeners tetap terpasang
+    const scaleX = imgW / _screenW
+    const scaleY = imgH / _screenH
+
     overlay.innerHTML = ''
 
     _elements.forEach(el => {
@@ -1000,22 +1005,20 @@ window.PageInspector = (() => {
     const newW = Math.round(rect.width)
     const newH = Math.round(rect.height)
 
-    // Set overlay persis sama ukuran dan posisi dengan gambar
+    // Set overlay persis sama ukuran dengan gambar
+    // Dengan display:inline-block pada wrap, gambar mulai dari top:0 left:0
+    // sehingga overlay cukup di-set width/height sama dengan gambar
     const overlay = document.getElementById('screen-overlay')
-    const wrap    = document.getElementById('screen-wrap')
-    if (overlay && wrap) {
-      const wrapRect = wrap.getBoundingClientRect()
-      const offsetLeft = rect.left - wrapRect.left
-      const offsetTop  = rect.top  - wrapRect.top
-      overlay.style.left   = offsetLeft + 'px'
-      overlay.style.top    = offsetTop  + 'px'
+    if (overlay) {
+      overlay.style.top    = '0px'
+      overlay.style.left   = '0px'
       overlay.style.width  = rect.width  + 'px'
       overlay.style.height = rect.height + 'px'
       overlay.style.pointerEvents = 'auto'
       overlay.style.cursor        = 'crosshair'
     }
 
-    // Log hanya kalau dimensi berubah (cegah spam di debug log)
+    // Log hanya kalau dimensi berubah
     if (newW !== _imgW || newH !== _imgH) {
       _imgW = newW
       _imgH = newH
@@ -1025,7 +1028,6 @@ window.PageInspector = (() => {
         `scale: ${(_imgW/_screenW).toFixed(3)}×${(_imgH/_screenH).toFixed(3)})`
       )
     } else {
-      // Dimensi sama — update nilai saja tanpa log
       _imgW = newW
       _imgH = newH
     }
