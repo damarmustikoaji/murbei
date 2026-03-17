@@ -91,9 +91,10 @@ contextBridge.exposeInMainWorld('testpilot', {
     saveSection:        (section)    => ipcRenderer.invoke('db:sections:save', section),
 
     // Test Cases
-    getTestCases:       (sectionId)  => ipcRenderer.invoke('db:testcases:getBySection', sectionId),
-    saveTestCase:       (tc)         => ipcRenderer.invoke('db:testcases:save', tc),
-    deleteTestCase:     (id)         => ipcRenderer.invoke('db:testcases:delete', id),
+    getTestCases:          (sectionId) => ipcRenderer.invoke('db:testcases:getBySection', sectionId),
+    getTestCasesBySuite:   (suiteId)   => ipcRenderer.invoke('db:testcases:getBySuite', suiteId),
+    saveTestCase:          (tc)        => ipcRenderer.invoke('db:testcases:save', tc),
+    deleteTestCase:        (id)        => ipcRenderer.invoke('db:testcases:delete', id),
 
     // Test Runs
     saveRun:            (run)        => ipcRenderer.invoke('db:runs:save', run),

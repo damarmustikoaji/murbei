@@ -57,11 +57,15 @@ CREATE TABLE IF NOT EXISTS sections (
 
 CREATE TABLE IF NOT EXISTS test_cases (
   id          TEXT PRIMARY KEY,
-  section_id  TEXT NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
+  section_id  TEXT REFERENCES sections(id) ON DELETE CASCADE,
+  suite_id    TEXT REFERENCES suites(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
+  description TEXT DEFAULT '',
   tags        TEXT DEFAULT '[]',
   steps_yaml  TEXT DEFAULT '',
+  dsl_yaml    TEXT DEFAULT '',
   status      TEXT DEFAULT 'pending',
+  priority    TEXT DEFAULT 'medium',
   steps_count INTEGER DEFAULT 0,
   created_at  TEXT DEFAULT (datetime('now')),
   updated_at  TEXT DEFAULT (datetime('now'))
@@ -273,28 +277,64 @@ const TestCases = {
     const rows = getDb().prepare('SELECT * FROM test_cases WHERE section_id=? ORDER BY created_at').all(sectionId)
     return rows.map(r => ({ ...r, tags: JSON.parse(r.tags || '[]') }))
   },
+  getBySuite(suiteId) {
+    const rows = getDb().prepare('SELECT * FROM test_cases WHERE suite_id=? ORDER BY created_at').all(suiteId)
+    return rows.map(r => ({ ...r, tags: JSON.parse(r.tags || '[]') }))
+  },
   getById(id) {
     const r = getDb().prepare('SELECT * FROM test_cases WHERE id=?').get(id)
     if (!r) return null
     return { ...r, tags: JSON.parse(r.tags || '[]') }
   },
   save(tc) {
+    // Migration: tambah kolom baru kalau belum ada (untuk DB yang sudah existing)
+    const db = getDb()
+    const cols = db.prepare("PRAGMA table_info(test_cases)").all().map(c => c.name)
+    if (!cols.includes('dsl_yaml'))    db.prepare("ALTER TABLE test_cases ADD COLUMN dsl_yaml    TEXT DEFAULT ''").run()
+    if (!cols.includes('description')) db.prepare("ALTER TABLE test_cases ADD COLUMN description TEXT DEFAULT ''").run()
+    if (!cols.includes('priority'))    db.prepare("ALTER TABLE test_cases ADD COLUMN priority    TEXT DEFAULT 'medium'").run()
+    if (!cols.includes('suite_id'))    db.prepare("ALTER TABLE test_cases ADD COLUMN suite_id    TEXT").run()
+
     const existing = this.getById(tc.id)
-    const tags = JSON.stringify(Array.isArray(tc.tags) ? tc.tags : [])
+    const tags     = JSON.stringify(Array.isArray(tc.tags) ? tc.tags : [])
+    const stepsYaml = tc.steps_yaml || tc.dsl_yaml || ''
+    const dslYaml   = tc.dsl_yaml   || tc.steps_yaml || ''
+    const stepsCount = tc.steps_count || (stepsYaml ? stepsYaml.split('\n- ').length - 1 : 0)
+
     if (existing) {
-      getDb().prepare(`
-        UPDATE test_cases SET name=?, tags=?, steps_yaml=?, status=?, steps_count=?, updated_at=?
+      db.prepare(`
+        UPDATE test_cases
+        SET name=?, description=?, tags=?, steps_yaml=?, dsl_yaml=?, status=?,
+            priority=?, steps_count=?, suite_id=?, updated_at=?
         WHERE id=?
-      `).run(tc.name, tags, tc.steps_yaml || '', tc.status || 'pending', tc.steps_count || 0, nowIso(), tc.id)
+      `).run(
+        tc.name, tc.description || '', tags, stepsYaml, dslYaml,
+        tc.status || 'pending', tc.priority || 'medium', stepsCount,
+        tc.suite_id || null, nowIso(), existing.id
+      )
+      return this.getById(existing.id)
     } else {
       const id = tc.id || generateId('tc-')
-      getDb().prepare(`
-        INSERT INTO test_cases (id, section_id, name, tags, steps_yaml, status, steps_count)
-        VALUES (?,?,?,?,?,?,?)
-      `).run(id, tc.section_id, tc.name, tags, tc.steps_yaml || '', tc.status || 'pending', tc.steps_count || 0)
+      db.prepare(`
+        INSERT INTO test_cases
+          (id, section_id, suite_id, name, description, tags, steps_yaml, dsl_yaml, status, priority, steps_count)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        id,
+        tc.section_id || null,
+        tc.suite_id   || null,
+        tc.name,
+        tc.description || '',
+        tags,
+        stepsYaml,
+        dslYaml,
+        tc.status   || 'pending',
+        tc.priority || 'medium',
+        stepsCount
+      )
       tc.id = id
+      return this.getById(id)
     }
-    return this.getById(tc.id)
   },
   delete(id) {
     return getDb().prepare('DELETE FROM test_cases WHERE id=?').run(id)
