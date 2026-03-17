@@ -28,32 +28,78 @@ class Inspector {
 
   /**
    * Ambil screenshot dari device, return sebagai base64 string
-   * Menggunakan: adb exec-out screencap -p (lebih cepat dari shell screencap)
+   *
+   * Strategi:
+   * 1. exec-out screencap -p → pipe langsung ke stdout (tidak butuh pull)
+   * 2. Fallback: screencap ke sdcard → pull → baca file
    */
   async screenshot(serial) {
     logger.debug(`Inspector screenshot: ${serial}`)
+    const adbPath = getAdbPath()
+
+    // ── Metode 1: exec-out (lebih cepat, tidak perlu pull) ─────
     try {
-      // Metode 1: exec-out (lebih cepat, langsung binary)
-      const adbPath = getAdbPath()
-      const tmpFile = path.join(os.tmpdir(), `testpilot_ss_${Date.now()}.png`)
+      const result = await spawnAsync(
+        adbPath,
+        ['-s', serial, 'exec-out', 'screencap', '-p'],
+        { timeout: 15000, encoding: 'buffer' }
+      )
 
-      // screencap ke file di device lalu pull (lebih reliable)
-      const devicePath = '/sdcard/testpilot_screenshot.png'
-      await adbDevice(serial, ['shell', 'screencap', '-p', devicePath])
-      await adbDevice(serial, ['pull', devicePath, tmpFile])
+      // Validasi output: PNG header = 0x89 0x50 0x4E 0x47
+      const buf = result.rawBuffer
+      if (buf && buf.length > 4 &&
+          buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) {
+        const base64 = buf.toString('base64')
+        logger.debug(`Screenshot via exec-out: ${buf.length} bytes`)
+        this._screenshotCache = { serial, base64, timestamp: Date.now() }
+        return base64
+      }
+      logger.warn('exec-out screenshot: invalid PNG, falling back to pull method')
+    } catch (err) {
+      logger.warn(`exec-out screenshot failed: ${err.message}, trying pull method...`)
+    }
 
-      // Cleanup di device
-      adbDevice(serial, ['shell', 'rm', '-f', devicePath]).catch(() => {})
+    // ── Metode 2: screencap ke sdcard lalu pull ────────────────
+    const devicePath = '/sdcard/testpilot_screenshot.png'
+    const tmpFile    = path.join(os.tmpdir(), `testpilot_ss_${Date.now()}.png`)
 
-      const data = fs.readFileSync(tmpFile)
-      fs.unlinkSync(tmpFile)
+    try {
+      // 1. Screencap ke sdcard
+      const capResult = await spawnAsync(
+        adbPath, ['-s', serial, 'shell', 'screencap', '-p', devicePath],
+        { timeout: 10000 }
+      )
+      if (capResult.exitCode !== 0) {
+        throw new Error(`screencap failed: exit=${capResult.exitCode} ${capResult.stderr}`)
+      }
 
+      // 2. Tunggu sebentar agar file flush ke sdcard
+      await new Promise(r => setTimeout(r, 300))
+
+      // 3. Pull ke local
+      const pullResult = await spawnAsync(
+        adbPath, ['-s', serial, 'pull', devicePath, tmpFile],
+        { timeout: 15000 }
+      )
+      if (pullResult.exitCode !== 0) {
+        throw new Error(`pull failed: exit=${pullResult.exitCode} ${pullResult.stderr}`)
+      }
+
+      // 4. Baca file
+      if (!fs.existsSync(tmpFile)) {
+        throw new Error(`File tidak ada setelah pull: ${tmpFile}`)
+      }
+      const data   = fs.readFileSync(tmpFile)
       const base64 = data.toString('base64')
+      logger.debug(`Screenshot via pull: ${data.length} bytes`)
+
       this._screenshotCache = { serial, base64, timestamp: Date.now() }
       return base64
-    } catch (err) {
-      logger.error('Screenshot failed:', { serial, error: err.message })
-      throw new Error(`Screenshot gagal: ${err.message}`)
+
+    } finally {
+      // Cleanup
+      try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile) } catch {}
+      adbDevice(serial, ['shell', 'rm', '-f', devicePath]).catch(() => {})
     }
   }
 

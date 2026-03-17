@@ -154,8 +154,8 @@ function isBinaryAvailable(binaryPath) {
 // ── Spawn helpers ─────────────────────────────────────────────
 
 /**
- * Spawn process dan return Promise {stdout, stderr, exitCode}
- * Untuk one-shot command (bukan streaming)
+ * Spawn process dan return Promise {stdout, stderr, exitCode, rawBuffer?}
+ * Support mode buffer untuk binary output (misal: adb exec-out screencap -p)
  */
 function spawnAsync(cmd, args = [], options = {}) {
   return new Promise((resolve, reject) => {
@@ -165,18 +165,30 @@ function spawnAsync(cmd, args = [], options = {}) {
       env: { ...process.env, ...options.env }
     })
 
+    const isBuffer = options.encoding === 'buffer'
+    let chunks   = []   // untuk mode buffer
     let stdout   = ''
     let stderr   = ''
-    let settled  = false  // prevent double-resolve setelah timeout
+    let settled  = false
 
-    proc.stdout?.on('data', d => { stdout += d.toString() })
+    if (isBuffer) {
+      proc.stdout?.on('data', d => { chunks.push(d) })
+    } else {
+      proc.stdout?.on('data', d => { stdout += d.toString() })
+    }
     proc.stderr?.on('data', d => { stderr += d.toString() })
 
     proc.on('close', exitCode => {
       if (settled) return
       settled = true
       logger.debug(`spawn exit ${exitCode}: ${cmd}`)
-      resolve({ stdout: stdout.trim(), stderr: stderr.trim(), exitCode })
+      const result = {
+        stdout:     stdout.trim(),
+        stderr:     stderr.trim(),
+        exitCode,
+      }
+      if (isBuffer) result.rawBuffer = Buffer.concat(chunks)
+      resolve(result)
     })
 
     proc.on('error', err => {
@@ -186,14 +198,15 @@ function spawnAsync(cmd, args = [], options = {}) {
       reject(err)
     })
 
-    // Timeout — resolve dengan exitCode -1, bukan reject, agar caller tidak crash
     if (options.timeout) {
       setTimeout(() => {
         if (settled) return
         settled = true
         try { proc.kill('SIGTERM') } catch {}
         logger.warn(`spawn timeout (${options.timeout}ms): ${cmd}`)
-        resolve({ stdout: stdout.trim(), stderr: stderr.trim(), exitCode: -1, timedOut: true })
+        const result = { stdout: stdout.trim(), stderr: stderr.trim(), exitCode: -1, timedOut: true }
+        if (isBuffer) result.rawBuffer = Buffer.concat(chunks)
+        resolve(result)
       }, options.timeout)
     }
   })
