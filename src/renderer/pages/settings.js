@@ -23,9 +23,6 @@ window.PageSettings = (() => {
     content.innerHTML = `
     <div style="max-width:580px;padding:20px">
 
-      <!-- Version banner placeholder -->
-      <div id="settings-version-banner"></div>
-
       <!-- Evidence & Storage -->
       <div class="card mb10">
         <div class="card-title mb12">
@@ -137,8 +134,8 @@ window.PageSettings = (() => {
       </div>
     </div>`
 
-    // Auto-check update di background
-    _autoCheckUpdate(version)
+    // Auto check update — tampil di area Tentang saja
+    checkUpdate()
   }
 
   // ── Binary deps renderer ────────────────────────────────────
@@ -278,44 +275,6 @@ window.PageSettings = (() => {
           <i class="bi bi-wifi-off"></i> Tidak dapat memeriksa update — cek koneksi internet.
         </div>`
     }
-  }
-
-  // Auto check di background saat render
-  async function _autoCheckUpdate(currentVersion) {
-    try {
-      const res  = await fetch(VERSION_CHECK_URL, { signal: AbortSignal.timeout(8000) })
-      if (!res.ok) return
-      const data = await res.json()
-      const latest = data.version || ''
-      if (!latest || latest === currentVersion) return
-
-      const banner = document.getElementById('settings-version-banner')
-      if (!banner) return
-
-      const levelCfg = {
-        critical: { bg:'#fee2e2', border:'#dc2626', color:'#dc2626', label:'🚨 Update Kritis' },
-        major:    { bg:'#fff7ed', border:'#f97316', color:'#ea580c', label:'⬆️ Update Major Tersedia' },
-        minor:    { bg:'#f0f6ff', border:'#3b7eed', color:'#2563eb', label:'ℹ️ Update Minor Tersedia' },
-      }
-      const cfg = levelCfg[data.level] || levelCfg.minor
-
-      banner.innerHTML = `
-        <div style="background:${cfg.bg};border:1px solid ${cfg.border};border-radius:8px;
-          padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
-          <div style="flex:1">
-            <span style="font-weight:700;font-size:12px;color:${cfg.color}">${cfg.label}</span>
-            <span style="font-size:11px;color:var(--text2);margin-left:6px">
-              v${esc(currentVersion)} → v${esc(latest)}
-            </span>
-            ${data.note ? `<span style="font-size:11px;color:var(--text3);margin-left:6px">— ${esc(data.note)}</span>` : ''}
-          </div>
-          <button class="btn btn-p btn-sm" onclick="navigate('setup')">
-            <i class="bi bi-lightning-charge-fill"></i> Update Sekarang
-          </button>
-          <button onclick="document.getElementById('settings-version-banner').innerHTML=''"
-            style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px">✕</button>
-        </div>`
-    } catch {}
   }
 
   return { render, pickEvidenceDir, clearEvidenceDir, recheckDeps, checkUpdate }
