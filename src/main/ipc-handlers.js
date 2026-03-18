@@ -263,7 +263,11 @@ function registerAllHandlers(win) {
 
   handle('system:getAppVersion', async () => app.getVersion())
 
-  handle('system:openExternal', async (_, url) => shell.openExternal(url))
+  handle('system:openExternal', async (_, url) => {
+    // Kalau path lokal (tidak ada protocol), tambah file://
+    const target = (url && !url.includes('://')) ? `file://${url}` : url
+    return shell.openExternal(target)
+  })
 
   handle('system:getDataPath', async () => app.getPath('userData'))
 
