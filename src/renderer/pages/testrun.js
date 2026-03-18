@@ -482,49 +482,12 @@ window.PageTestRun = (() => {
 
       <!-- TC Detail (collapse) -->
       <div id="tcr-detail-${esc(r.id||r.tc_id+i)}"
-        style="display:none;border-top:1px solid var(--border);background:var(--surface2)">
+        style="${r.status==='fail'?'display:block':'display:none'};border-top:1px solid var(--border);background:var(--surface2)">
 
-        ${r.error_msg ? `
-          <div style="padding:8px 14px;background:#fee2e2;border-bottom:1px solid rgba(220,38,38,.2)">
-            <div style="font-size:11px;color:#dc2626;font-weight:600;margin-bottom:3px">
-              <i class="bi bi-exclamation-circle"></i> Error
-            </div>
-            <div style="font-size:11px;color:#991b1b;font-family:var(--font-mono)">
-              ${esc(r.error_msg)}
-            </div>
-          </div>` : ''}
-
-        <!-- Steps: log steps kalau sudah run, scenario steps kalau untested -->
-        ${steps.length ? `
+        ${untested && tcSteps.length ? `
           <div style="padding:8px 14px">
             <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;
-              letter-spacing:.4px;margin-bottom:6px">
-              Log Steps (${steps.length})
-            </div>
-            ${steps.map((s, si) => {
-              const isPass = s.status === 'pass'
-              const isFail = s.status === 'fail'
-              return `
-              <div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;
-                border-bottom:1px solid var(--border)">
-                <span style="font-size:9px;color:#8b949e;flex-shrink:0;font-family:monospace;
-                  margin-top:2px;min-width:44px">${s.time||''}</span>
-                <div style="width:16px;height:16px;border-radius:50%;flex-shrink:0;
-                  background:${isPass?'#dcfce7':isFail?'#fee2e2':'var(--surface3)'};
-                  display:flex;align-items:center;justify-content:center;margin-top:1px">
-                  <i class="bi bi-${isPass?'check-lg':isFail?'x-lg':'dash'}"
-                    style="font-size:8px;color:${isPass?'#16a34a':isFail?'#dc2626':'#8b949e'}"></i>
-                </div>
-                <span style="flex:1;font-size:11px;color:${isPass?'var(--green)':isFail?'var(--red)':'var(--text2)'};
-                  word-break:break-word">${esc(s.msg||s.action||'')}</span>
-              </div>`
-            }).join('')}
-          </div>` : untested && tcSteps.length ? `
-          <div style="padding:8px 14px">
-            <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;
-              letter-spacing:.4px;margin-bottom:6px">
-              Skenario (${tcSteps.length} steps)
-            </div>
+              letter-spacing:.4px;margin-bottom:6px">Skenario (${tcSteps.length} steps)</div>
             ${tcSteps.map((s, si) => `
               <div style="display:flex;align-items:center;gap:8px;padding:5px 0;
                 border-bottom:1px solid var(--border)">
@@ -533,40 +496,18 @@ window.PageTestRun = (() => {
                   justify-content:center;flex-shrink:0">${si+1}</span>
                 <span style="background:var(--blue-bg);color:var(--blue);font-size:10px;
                   font-weight:600;padding:1px 6px;border-radius:4px;flex-shrink:0">
-                  ${esc(s.action||'?')}
-                </span>
-                <span style="font-size:11px;color:var(--text2);overflow:hidden;
-                  text-overflow:ellipsis;white-space:nowrap;flex:1">
-                  ${esc(s.params?.selector||s.params?.package||s.params?.expected||s.params?.value||'')}
-                </span>
-                <span style="font-size:9px;color:var(--text3);flex-shrink:0">Untested</span>
+                  ${esc(s.action||'?')}</span>
+                <span style="font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;
+                  white-space:nowrap;flex:1">
+                  ${esc(s.params?.selector||s.params?.package||s.params?.expected||s.params?.value||'')}</span>
+                <span style="font-size:9px;color:var(--text3)">Untested</span>
               </div>`).join('')}
-          </div>` : `
-          <div style="padding:10px 14px;font-size:11px;color:var(--text3);text-align:center">
-            ${running
-              ? '<i class="bi bi-arrow-clockwise" style="animation:spin .7s linear infinite"></i> Menunggu log steps...'
-              : untested
-              ? '<i class="bi bi-hourglass"></i> Untested — belum dijalankan'
-              : '<i class="bi bi-info-circle"></i> Log steps tidak tersedia'}
-          </div>`}
-
-        <!-- Evidence -->
-        ${r.evidence && Object.keys(r.evidence).length ? `
-          <div style="padding:8px 14px;border-top:1px solid var(--border)">
-            <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;
-              letter-spacing:.4px;margin-bottom:6px">Evidence</div>
-            <div style="display:flex;align-items:center;gap:6px">
-              <code style="font-size:10px;font-family:var(--font-mono);flex:1;overflow:hidden;
-                text-overflow:ellipsis;white-space:nowrap;background:var(--surface3);
-                padding:3px 7px;border-radius:4px">
-                ${esc(r.evidence.folder||'')}
-              </code>
-              ${r.evidence.folder ? `
-                <button class="btn btn-xs btn-d"
-                  onclick="window.api.system.openExternal('${esc(r.evidence.folder)}')"
-                  title="Buka di Finder"><i class="bi bi-folder2-open"></i></button>` : ''}
-            </div>
-          </div>` : ''}
+          </div>` :
+          running ? `<div style="padding:8px 14px;font-size:11px;color:var(--text3);text-align:center">
+              <i class="bi bi-arrow-clockwise" style="animation:spin .7s linear infinite"></i> Menunggu log steps...</div>` :
+          !untested ? _buildDetailContent(steps, r.error_msg, r.evidence?.folder, r.status) :
+          `<div style="padding:8px 14px;font-size:11px;color:var(--text3);text-align:center">
+            <i class="bi bi-hourglass"></i> Untested — belum dijalankan</div>`}
       </div>
     </div>`
   }
@@ -908,30 +849,16 @@ window.PageTestRun = (() => {
       if (badgeEl) { badgeEl.textContent = tcStatus.toUpperCase(); badgeEl.style.background = tcStatus==='pass'?'#dcfce7':'#fee2e2'; badgeEl.style.color = tcStatus==='pass'?'#16a34a':'#dc2626' }
       if (rowEl)   rowEl.style.borderColor = tcStatus==='pass'?'#16a34a':'#dc2626'
 
-      // Expand TC yang fail — tampilkan error
-      if (tcStatus === 'fail') {
-        const det  = document.getElementById('tcr-detail-'+tcId)
-        const chev = document.getElementById('tcr-chev-'+tcId)
-        if (det) {
-          det.innerHTML = `<div style="padding:8px 14px;background:#fee2e2;border-bottom:1px solid rgba(220,38,38,.2)">
-            <div style="font-size:11px;color:#dc2626;font-weight:600;margin-bottom:3px"><i class="bi bi-exclamation-circle"></i> Error</div>
-            <div style="font-size:11px;color:#991b1b;font-family:var(--font-mono)">${esc(errMsg)}</div>
-            ${tcEvidenceDir ? `<div style="margin-top:6px;font-size:10px;color:#7f1d1d">Evidence: ${esc(tcEvidenceDir)}</div>` : ''}
-          </div>`
+
+      // Update evidence drawer — tampilkan step logs + error/evidence untuk SEMUA status
+      const det  = document.getElementById('tcr-detail-'+tcId)
+      const chev = document.getElementById('tcr-chev-'+tcId)
+      if (det) {
+        det.innerHTML = _buildDetailContent(stepLogsArr, errMsg, tcEvidenceDir, tcStatus)
+        // Auto-expand saat fail
+        if (tcStatus === 'fail') {
           det.style.display = 'block'
           if (chev) chev.style.transform = 'rotate(180deg)'
-        }
-      } else if (tcEvidenceDir) {
-        const det = document.getElementById('tcr-detail-'+tcId)
-        if (det) {
-          det.innerHTML = `<div style="padding:8px 14px">
-            <div style="display:flex;align-items:center;gap:6px">
-              <code style="font-size:10px;font-family:var(--font-mono);flex:1;background:var(--surface3);
-                padding:3px 7px;border-radius:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-                ${esc(tcEvidenceDir)}</code>
-              <button class="btn btn-xs btn-d" onclick="window.api.system.openExternal('${esc(tcEvidenceDir)}')"
-                title="Buka di Finder"><i class="bi bi-folder2-open"></i></button>
-            </div></div>`
         }
       }
 
@@ -1001,6 +928,79 @@ window.PageTestRun = (() => {
   }
 
   // ── Helpers ────────────────────────────────────────────────────
+  // ── Detail content builder — konsisten untuk run result & load dari DB ──
+  function _buildDetailContent(stepLogs, errMsg, evidenceDir, status) {
+    const parts = []
+
+    // Error banner — hanya kalau fail
+    if (errMsg && status === 'fail') {
+      parts.push(`
+        <div style="padding:8px 14px;background:#fee2e2;border-bottom:1px solid rgba(220,38,38,.2)">
+          <div style="font-size:11px;color:#dc2626;font-weight:600;margin-bottom:3px">
+            <i class="bi bi-exclamation-circle"></i> Error
+          </div>
+          <div style="font-size:11px;color:#991b1b;font-family:var(--font-mono);word-break:break-all">
+            ${esc(errMsg)}
+          </div>
+        </div>`)
+    }
+
+    // Step logs
+    if (stepLogs && stepLogs.length) {
+      const rows = stepLogs.map(s => {
+        const isPass = s.status === 'pass'
+        const isFail = s.status === 'fail'
+        return `
+          <div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;
+            border-bottom:1px solid var(--border)">
+            <span style="font-size:9px;color:#8b949e;flex-shrink:0;font-family:monospace;
+              min-width:46px;margin-top:2px">${s.time||''}</span>
+            <div style="width:15px;height:15px;border-radius:50%;flex-shrink:0;margin-top:2px;
+              background:${isPass?'#dcfce7':isFail?'#fee2e2':'var(--surface3)'};
+              display:flex;align-items:center;justify-content:center">
+              <i class="bi bi-${isPass?'check-lg':isFail?'x-lg':'dash'}"
+                style="font-size:7px;color:${isPass?'#16a34a':isFail?'#dc2626':'#8b949e'}"></i>
+            </div>
+            <span style="flex:1;font-size:11px;word-break:break-word;
+              color:${isPass?'var(--green)':isFail?'var(--red)':'var(--text2)'}">
+              ${esc(s.msg||'')}
+            </span>
+          </div>`
+      }).join('')
+      parts.push(`
+        <div style="padding:8px 14px">
+          <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;
+            letter-spacing:.4px;margin-bottom:5px">Log Steps (${stepLogs.length})</div>
+          ${rows}
+        </div>`)
+    } else {
+      parts.push(`
+        <div style="padding:8px 14px;font-size:11px;color:var(--text3);text-align:center">
+          <i class="bi bi-info-circle"></i> Log steps tidak tersedia
+        </div>`)
+    }
+
+    // Evidence
+    if (evidenceDir) {
+      parts.push(`
+        <div style="padding:6px 14px;border-top:1px solid var(--border);
+          background:var(--surface3)">
+          <div style="display:flex;align-items:center;gap:6px">
+            <i class="bi bi-folder2" style="font-size:11px;color:var(--text3)"></i>
+            <code style="font-size:9px;font-family:var(--font-mono);flex:1;overflow:hidden;
+              text-overflow:ellipsis;white-space:nowrap;color:var(--text2)">
+              ${esc(evidenceDir)}
+            </code>
+            <button class="btn btn-xs btn-d"
+              onclick="window.api.system.openExternal('${esc(evidenceDir)}')"
+              title="Buka di Finder"><i class="bi bi-folder2-open"></i></button>
+          </div>
+        </div>`)
+    }
+
+    return parts.join('')
+  }
+
   function _renderPicker(tcs) {
     if (!tcs.length) return `
       <div style="text-align:center;padding:20px;color:var(--text3)">
