@@ -114,53 +114,79 @@ class Inspector {
     logger.debug(`Inspector XML dump: ${serial}`)
     const adbPath   = getAdbPath()
     const tmpFile   = path.join(os.tmpdir(), `testpilot_ui_${Date.now()}.xml`)
-
-    // Android 12+ emulator: /sdcard/ butuh MANAGE_EXTERNAL_STORAGE permission
-    // /data/local/tmp/ selalu accessible oleh ADB shell tanpa permission
     const devicePath = '/data/local/tmp/testpilot_ui.xml'
 
-    try {
-      // 1. uiautomator dump ke /data/local/tmp/
-      const dumpResult = await spawnAsync(
-        adbPath,
-        ['-s', serial, 'shell', 'uiautomator', 'dump', devicePath],
-        { timeout: 15000 }
-      )
-      if (dumpResult.exitCode !== 0) {
-        throw new Error(`uiautomator dump failed: ${dumpResult.stderr || dumpResult.stdout}`)
-      }
+    // Retry hingga 3x karena uiautomator kadang SIGKILL saat emulator busy
+    const MAX_RETRY = 3
+    let lastErr = null
 
-      // 2. Baca via exec-out (tidak butuh pull, tidak ada permission issue)
-      const catResult = await spawnAsync(
-        adbPath,
-        ['-s', serial, 'exec-out', 'cat', devicePath],
-        { timeout: 10000 }
-      )
-
-      let xmlContent = catResult.stdout
-      if (!xmlContent || !xmlContent.includes('<hierarchy')) {
-        // Fallback: pull biasa
-        await new Promise(r => setTimeout(r, 300))
-        const pullResult = await spawnAsync(
-          adbPath, ['-s', serial, 'pull', devicePath, tmpFile],
-          { timeout: 15000 }
-        )
-        if (pullResult.exitCode !== 0 || !fs.existsSync(tmpFile)) {
-          throw new Error(`Cannot read XML: ${pullResult.stderr}`)
+    for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+      try {
+        // Tunggu sebentar sebelum retry (emulator perlu settle)
+        if (attempt > 1) {
+          logger.debug(`XML dump retry ${attempt}/${MAX_RETRY}...`)
+          await new Promise(r => setTimeout(r, 800 * attempt))
         }
-        xmlContent = fs.readFileSync(tmpFile, 'utf8')
+
+        // 1. uiautomator dump — timeout lebih longgar (20s)
+        const dumpResult = await spawnAsync(
+          adbPath,
+          ['-s', serial, 'shell', 'uiautomator', 'dump', devicePath],
+          { timeout: 20000 }
+        )
+
+        // Exit 137 = SIGKILL (emulator OOM/busy), retry
+        if (dumpResult.exitCode === 137) {
+          lastErr = new Error(`uiautomator killed (exit 137) — emulator busy, retrying...`)
+          logger.warn(`uiautomator SIGKILL attempt ${attempt}`)
+          continue
+        }
+
+        if (dumpResult.exitCode !== 0 && dumpResult.exitCode !== -1) {
+          lastErr = new Error(`uiautomator dump failed (exit ${dumpResult.exitCode}): ${dumpResult.stderr || dumpResult.stdout}`)
+          continue
+        }
+
+        // 2. Baca via exec-out
+        const catResult = await spawnAsync(
+          adbPath, ['-s', serial, 'exec-out', 'cat', devicePath],
+          { timeout: 10000 }
+        )
+
+        let xmlContent = catResult.stdout
+        if (!xmlContent || !xmlContent.includes('<hierarchy')) {
+          // Fallback: pull
+          await new Promise(r => setTimeout(r, 400))
+          const pullResult = await spawnAsync(
+            adbPath, ['-s', serial, 'pull', devicePath, tmpFile],
+            { timeout: 15000 }
+          )
+          if (pullResult.exitCode !== 0 || !fs.existsSync(tmpFile)) {
+            lastErr = new Error(`Cannot read XML: ${pullResult.stderr}`)
+            continue
+          }
+          xmlContent = fs.readFileSync(tmpFile, 'utf8')
+        }
+
+        if (!xmlContent || !xmlContent.includes('<hierarchy')) {
+          lastErr = new Error('XML tidak valid (tidak ada <hierarchy>)')
+          continue
+        }
+
+        const tree = this._parseXmlToTree(xmlContent)
+        return { xml: xmlContent, tree }
+
+      } catch (err) {
+        lastErr = err
+        logger.warn(`XML dump attempt ${attempt} failed: ${err.message}`)
+      } finally {
+        try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile) } catch {}
+        adbDevice(serial, ['shell', 'rm', '-f', devicePath]).catch(() => {})
       }
-
-      const tree = this._parseXmlToTree(xmlContent)
-      return { xml: xmlContent, tree }
-
-    } catch (err) {
-      logger.error('XML dump failed:', { serial, error: err.message })
-      throw new Error(`XML dump gagal: ${err.message}`)
-    } finally {
-      try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile) } catch {}
-      adbDevice(serial, ['shell', 'rm', '-f', devicePath]).catch(() => {})
     }
+
+    logger.error('XML dump failed after retries:', { serial, error: lastErr?.message })
+    throw new Error(`XML dump gagal: ${lastErr?.message || 'Unknown error'}`)
   }
 
   /**
