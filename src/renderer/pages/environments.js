@@ -1,4 +1,4 @@
-/* pages/environments.js */
+/* pages/settings.js */
 window.PageEnvironments = (() => {
   'use strict'
   let _activeEnvId = null
@@ -43,8 +43,7 @@ window.PageEnvironments = (() => {
                   ? '<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;background:#dcfce7;color:#16a34a">● Aktif</span>'
                   : ''}
               </div>
-              ${env.base_url ? `<div style="font-size:10px;color:var(--text3);font-family:var(--font-mono);
-                overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(env.base_url)}</div>` : ''}
+              ${env.base_url ? `<div style="font-size:10px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(env.base_url)}</div>` : ''}
               <div style="font-size:10px;color:var(--text3);margin-top:2px">
                 ${Object.keys(env.vars||{}).length} variabel
               </div>
@@ -65,7 +64,7 @@ window.PageEnvironments = (() => {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
             <div>
               <div style="font-size:16px;font-weight:700;margin-bottom:2px">${esc(active.name)}</div>
-              ${active.base_url ? `<div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">${esc(active.base_url)}</div>` : ''}
+              ${active.base_url ? `<div style="font-size:11px;color:var(--text3)">${esc(active.base_url)}</div>` : ''}
             </div>
             <div style="display:flex;gap:6px">
               ${!active.is_active ? `
@@ -212,9 +211,9 @@ window.PageEnvironments = (() => {
             style="width:100%;font-size:12px" autofocus>
         </div>
         <div>
-          <label style="font-size:11px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Base URL</label>
-          <input type="text" id="env-modal-url" placeholder="https://staging.example.com"
-            style="width:100%;font-size:12px;font-family:var(--font-mono)">
+          <label style="font-size:11px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Deskripsi</label>
+          <input type="text" id="env-modal-url" placeholder="Contoh: Server testing untuk tim QA"
+            style="width:100%;font-size:12px">
         </div>
       </div>`, 'Buat Environment')
     document.getElementById('env-modal-confirm').onclick = createEnv
@@ -236,10 +235,10 @@ window.PageEnvironments = (() => {
               style="width:100%;font-size:12px">
           </div>
           <div>
-            <label style="font-size:11px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Base URL</label>
+            <label style="font-size:11px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Deskripsi</label>
             <input type="text" id="env-modal-url" value="${esc(env.base_url||'')}"
-              placeholder="https://example.com"
-              style="width:100%;font-size:12px;font-family:var(--font-mono)">
+              placeholder="Contoh: Server testing untuk tim QA"
+              style="width:100%;font-size:12px">
           </div>
         </div>`, 'Simpan')
       document.getElementById('env-modal-confirm').onclick = () => saveEditEnv(envId)
@@ -396,5 +395,3 @@ window.PageEnvironments = (() => {
   return { render, activate, selectEnv, updateVar, addVar, deleteVar,
            deleteEnv, renameKey, showNewEnvModal, showEditEnvModal, showAddVarModal }
 })()
-
-/* pages/settings.js */
