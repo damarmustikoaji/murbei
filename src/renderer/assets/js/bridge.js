@@ -95,6 +95,7 @@
       deleteSuite:     tp ? w(function(id)  { return tp.db.deleteSuite(id) })        : noop,
       getSections:     tp ? w(function(id)  { return tp.db.getSections(id) })        : noopArr,
       saveSection:     tp ? w(function(s)   { return tp.db.saveSection(s) })         : noop,
+      deleteSection:   tp ? w(function(id)  { return tp.db.deleteSection(id) })      : noop,
       getTestCaseById:      tp ? w(function(id)  { return tp.db.getTestCaseById(id) })         : noop,
       getTestCases:         tp ? w(function(id)  { return tp.db.getTestCases(id) })           : noopArr,
       getTestCasesBySuite:  tp ? w(function(id)  { return tp.db.getTestCasesBySuite(id) })    : noopArr,
