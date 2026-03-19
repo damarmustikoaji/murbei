@@ -139,9 +139,7 @@ window.PageSettings = (() => {
   // ── Deps renderer ───────────────────────────────────────────
   function _renderDeps(deps, testpilotDir) {
     const tp = testpilotDir || '~/.testpilot'
-    const isMac = process.platform === 'darwin' ||
-      navigator.platform?.startsWith('Mac') ||
-      navigator.userAgent?.includes('Mac')
+    const isMac = navigator.platform?.startsWith('Mac') || navigator.userAgent?.includes('Mac')
 
     const androidItems = [
       {
