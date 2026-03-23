@@ -3,7 +3,7 @@
  *
  * Centralized logger dengan Winston.
  * - Console output saat development (npm run dev)
- * - File output ke ~/.testpilot/logs/ (dev) atau userData/logs/ (production)
+ * - File output ke ~/.mustlab/logs/ (dev) atau userData/logs/ (production)
  * - Daily rotation, simpan 7 hari app log + 30 hari error log
  *
  * FIX: logger.js di-load sebelum app.whenReady(), jadi pakai lazy init.
@@ -16,9 +16,9 @@ const path = require('path')
 const fs   = require('fs')
 const os   = require('os')
 
-// ── Initial log dir — ~/.testpilot/logs saat startup ──────────
+// ── Initial log dir — ~/.mustlab/logs saat startup ──────────
 // Setelah app ready, setLogDir() akan update ke userData/logs/
-let _logDir = path.join(os.homedir(), '.testpilot', 'logs')
+let _logDir = path.join(os.homedir(), '.mustlab', 'logs')
 try { fs.mkdirSync(_logDir, { recursive: true }) } catch {}
 
 // ── Formats ───────────────────────────────────────────────────

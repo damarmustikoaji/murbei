@@ -54,7 +54,7 @@ class DeviceManager extends EventEmitter {
     const home = require('os').homedir()
 
     const candidates = [
-      getAdbPath(),   // bundled atau ~/.testpilot/adb/adb
+      getAdbPath(),   // bundled atau ~/.mustlab/adb/adb
       'adb',
       `${home}/Library/Android/sdk/platform-tools/adb`,
       `${home}/Android/Sdk/platform-tools/adb`,

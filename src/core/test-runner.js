@@ -122,8 +122,8 @@ class TestRunner extends EventEmitter {
       ...config.envVars,
       TERM: 'dumb',
       PATH: [
-        path.join(home, '.testpilot', 'bin', 'maestro', 'bin'),
-        path.join(home, '.testpilot', 'bin'),
+        path.join(home, '.mustlab', 'bin', 'maestro', 'bin'),
+        path.join(home, '.mustlab', 'bin'),
         javaEnv.JAVA_HOME ? path.join(javaEnv.JAVA_HOME, 'bin') : '',
         '/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin',
         process.env.PATH || '',
@@ -308,14 +308,14 @@ class TestRunner extends EventEmitter {
   }
 
   /**
-   * Bangun env dengan JAVA_HOME dari ~/.testpilot/java/ atau system Java
+   * Bangun env dengan JAVA_HOME dari ~/.mustlab/java/ atau system Java
    */
   _buildJavaEnv() {
     const home = os.homedir()
     const env  = {}
 
-    // Cek ~/.testpilot/java/ dulu (downloaded by setup)
-    const javaBase = path.join(home, '.testpilot', 'java')
+    // Cek ~/.mustlab/java/ dulu (downloaded by setup)
+    const javaBase = path.join(home, '.mustlab', 'java')
     try {
       const fs = require('fs')
       if (fs.existsSync(javaBase)) {

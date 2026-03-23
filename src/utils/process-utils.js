@@ -3,7 +3,7 @@
  *
  * Utility untuk spawn proses child dan resolve path binary.
  * Mendeteksi platform dan mengembalikan path binary yang tepat
- * (bundled di resources/bin/ atau didownload di ~/.testpilot/bin/).
+ * (bundled di resources/bin/ atau didownload di ~/.mustlab/bin/).
  */
 const { spawn, execFile } = require('child_process')
 const path = require('path')
@@ -13,11 +13,11 @@ const logger = require('./logger')
 
 // ── Binary paths ──────────────────────────────────────────────
 
-const TESTPILOT_DIR = path.join(os.homedir(), '.testpilot')
+const TESTPILOT_DIR = path.join(os.homedir(), '.mustlab')
 
 /**
  * Dapatkan path ADB binary yang tepat.
- * Priority: bundled di resources/bin/ → ~/.testpilot/adb/
+ * Priority: bundled di resources/bin/ → ~/.mustlab/adb/
  */
 function getAdbPath() {
   // Priority 0: sudah di-discover oleh device-manager.init()
@@ -34,7 +34,7 @@ function getAdbPath() {
     : null
   if (resourcesPath && fs.existsSync(resourcesPath)) return resourcesPath
 
-  // 2. Downloaded by setup → ~/.testpilot/adb/adb
+  // 2. Downloaded by setup → ~/.mustlab/adb/adb
   const setupPath = path.join(TESTPILOT_DIR, 'adb', adbName)
   if (fs.existsSync(setupPath)) return setupPath
 
@@ -60,7 +60,7 @@ function getAdbPath() {
 /**
  * Dapatkan path Maestro CLI.
  * Maestro zip dari GitHub bisa berubah struktur antar versi.
- * Kita scan folder ~/.testpilot/bin/ secara rekursif untuk menemukan binary.
+ * Kita scan folder ~/.mustlab/bin/ secara rekursif untuk menemukan binary.
  */
 function getMaestroPath() {
   const binName  = process.platform === 'win32' ? 'maestro.bat' : 'maestro'
@@ -87,7 +87,7 @@ function getMaestroPath() {
     return null
   }
 
-  // 1. Scan ~/.testpilot/bin/ rekursif
+  // 1. Scan ~/.mustlab/bin/ rekursif
   const scanned = findBinary(binDir, 0)
   if (scanned) return scanned
 

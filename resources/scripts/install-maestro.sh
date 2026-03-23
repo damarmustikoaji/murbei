@@ -1,11 +1,11 @@
 #!/bin/bash
 # resources/scripts/install-maestro.sh
 # Dijalankan oleh SetupManager untuk install Maestro di macOS/Linux
-# Usage: ./install-maestro.sh ~/.testpilot
+# Usage: ./install-maestro.sh ~/.mustlab
 
 set -e
 
-INSTALL_DIR="${1:-$HOME/.testpilot}"
+INSTALL_DIR="${1:-$HOME/.mustlab}"
 BIN_DIR="$INSTALL_DIR/bin"
 CACHE_DIR="$INSTALL_DIR/cache"
 

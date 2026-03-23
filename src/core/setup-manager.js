@@ -3,12 +3,14 @@
  *
  * First-time setup:
  * 1. Check apakah setiap dependency sudah tersedia
- * 2. Download & install yang belum ada ke ~/.testpilot/
+ * 2. Download & install yang belum ada ke ~/.mustlab/
  * 3. ADB: sudah di-bundle di resources/bin/, tinggal extract
  * 4. Java: download Temurin JRE (headless)
  * 5. Maestro: download dari GitHub releases
  *
  * Semua progress di-emit sebagai events ke IPC → UI
+ *
+ * FIXED: Tambahkan safety check untuk memastikan DIRS.cache exists sebelum download
  */
 const EventEmitter  = require('events')
 const path          = require('path')
@@ -48,6 +50,14 @@ class SetupManager extends EventEmitter {
   constructor() {
     super()
     this._running = false
+  }
+
+  // ── Helper: Ensure cache directory exists ──────────────────
+  _ensureCacheDir() {
+    if (!fs.existsSync(DIRS.cache)) {
+      fs.mkdirSync(DIRS.cache, { recursive: true })
+      logger.debug(`Created cache directory: ${DIRS.cache}`)
+    }
   }
 
   // ── Check ──────────────────────────────────────────────────
@@ -177,7 +187,7 @@ class SetupManager extends EventEmitter {
   }
 
   async _checkJava() {
-    // Cek di ~/.testpilot/java/ dulu
+    // Cek di ~/.mustlab/java/ dulu
     const javaPath = this._getJavaPath()
     if (javaPath && fs.existsSync(javaPath)) {
       const ok = await isBinaryAvailable(javaPath)
@@ -254,8 +264,8 @@ class SetupManager extends EventEmitter {
       env.PATH      = `${javaHome}/bin:${env.PATH || ''}`
     }
 
-    // Tambahkan ~/.testpilot/bin ke PATH agar maestro bisa ditemukan
-    env.PATH = `${home}/.testpilot/bin:${home}/.testpilot/bin/maestro/bin:${env.PATH || ''}`
+    // Tambahkan ~/.mustlab/bin ke PATH agar maestro bisa ditemukan
+    env.PATH = `${home}/.mustlab/bin:${home}/.mustlab/bin/maestro/bin:${env.PATH || ''}`
 
     // Pastikan PATH standar macOS tersedia (Electron tidak selalu inherit full PATH)
     const macPaths = '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin'
@@ -339,6 +349,9 @@ class SetupManager extends EventEmitter {
 
     this._emit('start', 'java', 0, 'Mendownload Java Runtime...')
 
+    // ✅ FIX: Ensure cache directory exists
+    this._ensureCacheDir()
+
     const platform = process.platform
     const arch     = process.arch
     const key      = `${platform}_${arch}`
@@ -378,6 +391,9 @@ class SetupManager extends EventEmitter {
     }
 
     this._emit('start', 'maestro', 0, 'Mendownload Maestro CLI...')
+
+    // ✅ FIX: Ensure cache directory exists
+    this._ensureCacheDir()
 
     const platform = process.platform
     const url      = MAESTRO_URLS[platform] || MAESTRO_URLS.linux
@@ -564,24 +580,41 @@ class SetupManager extends EventEmitter {
   /**
    * Download file dengan progress callback
    * Ikuti redirect (GitHub releases menggunakan redirect)
+   * 
+   * ✅ FIX: Tambahkan error handling yang lebih baik untuk file stream
    */
   _download(url, dest, onProgress) {
     return new Promise((resolve, reject) => {
       const doRequest = (currentUrl, redirectCount = 0) => {
         if (redirectCount > 5) return reject(new Error('Too many redirects'))
 
+        // ✅ Ensure parent directory exists
+        const destDir = path.dirname(dest)
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true })
+        }
+
         const file = fs.createWriteStream(dest)
         const proto = currentUrl.startsWith('https') ? https : require('http')
+
+        // ✅ Handle file stream errors
+        file.on('error', (err) => {
+          file.close()
+          try { fs.unlinkSync(dest) } catch {}
+          reject(err)
+        })
 
         proto.get(currentUrl, (res) => {
           // Handle redirect
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             file.close()
-            fs.unlinkSync(dest)
+            try { fs.unlinkSync(dest) } catch {}
             return doRequest(res.headers.location, redirectCount + 1)
           }
 
           if (res.statusCode !== 200) {
+            file.close()
+            try { fs.unlinkSync(dest) } catch {}
             return reject(new Error(`HTTP ${res.statusCode} untuk ${currentUrl}`))
           }
 
@@ -597,8 +630,11 @@ class SetupManager extends EventEmitter {
 
           res.pipe(file)
           file.on('finish', () => { file.close(); resolve() })
-          file.on('error', reject)
-        }).on('error', reject)
+        }).on('error', (err) => {
+          file.close()
+          try { fs.unlinkSync(dest) } catch {}
+          reject(err)
+        })
       }
 
       doRequest(url)
