@@ -223,6 +223,97 @@ git push origin master
 - Perbaiki kode, commit, push
 - Buat tag ulang dari awal (langkah 3)
 
+**Tag sudah di-push tapi workflow tidak muncul / tidak ter-trigger:**
+
+Ini bisa terjadi kalau tag di-push sebelum file `.github/workflows/release.yml` ada di repo, atau ada masalah koneksi saat push.
+
+Cek dulu apakah tag sudah sampai di GitHub:
+```bash
+git ls-remote --tags origin
+# Kalau tag tidak muncul di sini, berarti belum ter-push
+```
+
+Solusi — hapus tag dan buat ulang:
+```bash
+# 1. Hapus tag di GitHub
+git push origin --delete v1.0.1
+
+# 2. Hapus tag lokal
+git tag -d v1.0.1
+
+# 3. Pastikan workflow file sudah ada di GitHub
+#    Buka: https://github.com/damarmustikoaji/murbei/actions
+#    Harus sudah terlihat "Build & Release DMG" di daftar workflows
+
+# 4. Buat tag ulang dan push
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+> **Catatan:** Push tag secara terpisah (`git push origin v1.0.1`) sama efektifnya
+> dengan `--follow-tags`. Gunakan cara ini kalau workflow tidak ter-trigger sebelumnya.
+
+**Tag sudah ada tapi ingin rebuild (misal ada bug di build script):**
+```bash
+# Hapus tag lama di GitHub dan lokal
+git push origin --delete v1.0.1
+git tag -d v1.0.1
+
+# Perbaiki kode, commit
+git add .
+git commit -m "fix: perbaikan build script"
+git push origin master
+
+# Buat tag ulang
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+> **Penting:** Satu tag hanya bisa dipakai sekali untuk satu release.
+> Kalau tag `v1.0.1` sudah pernah bikin release di GitHub, hapus dulu release-nya
+> di halaman https://github.com/damarmustikoaji/murbei/releases sebelum push tag ulang.
+
+---
+
+### Release Notes — Cara Menambahkan Informasi Perubahan
+
+Release notes adalah catatan perubahan yang muncul di halaman GitHub Releases, dan dibaca juga oleh fitur **Cek Update** di dalam app.
+
+#### Cara 1 — Edit manual dari GitHub (untuk tambah deskripsi bebas)
+
+1. Buka https://github.com/damarmustikoaji/murbei/releases
+2. Klik ikon **pensil (Edit)** di release yang ingin diubah
+3. Isi kolom **"Describe this release"** dengan informasi perubahan
+4. Klik **Update release**
+
+Gunakan cara ini untuk menambahkan catatan khusus, instruksi upgrade, atau highlight fitur penting.
+
+#### Cara 2 — Otomatis dari commit messages (sudah aktif)
+
+Workflow sudah dikonfigurasi dengan `generate_release_notes: true`, sehingga GitHub **otomatis** membuat changelog dari semua commit sejak tag sebelumnya. Hasilnya seperti ini:
+
+```
+## What's Changed
+* feat: tambah filter status di halaman reports
+* fix: crash saat device Android disconnect tiba-tiba
+* chore: update dependency axios ke 1.7.0
+
+**Full Changelog**: https://github.com/damarmustikoaji/murbei/compare/v1.0.0...v1.0.1
+```
+
+Supaya release notes otomatis ini informatif, **biasakan commit dengan format berikut:**
+
+| Prefix | Digunakan untuk | Contoh |
+|---|---|---|
+| `feat:` | Fitur baru | `feat: tambah export CSV di reports` |
+| `fix:` | Bugfix | `fix: ADB tidak terdeteksi setelah sleep` |
+| `refactor:` | Perubahan kode tanpa ubah behavior | `refactor: pisah logik device detection` |
+| `chore:` | Update dependency, config | `chore: update electron ke 29.2.0` |
+| `docs:` | Perubahan dokumentasi | `docs: update panduan iOS setup` |
+
+> Commit dengan pesan singkat seperti `"update"` atau `"fix bug"` tidak akan informatif
+> di release notes. Luangkan 10 detik untuk tulis pesan commit yang jelas.
+
 ---
 
 ### Cek Update dari dalam App
