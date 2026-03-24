@@ -125,7 +125,7 @@ window.PageSettings = (() => {
           <div>
             <div style="font-size:15px;font-weight:700;margin-bottom:2px">MustLab</div>
             <div style="font-size:11px;color:var(--text3)">v${version}</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:4px">Electron · better-sqlite3 · Maestro CLI · ADB</div>
+            <div id="app-release-note" style="font-size:10px;color:var(--text3);margin-top:4px">Electron · better-sqlite3 · Maestro CLI · ADB</div>
           </div>
           <button class="btn btn-d btn-sm" id="update-btn" onclick="PageSettings.checkUpdate()" style="flex-shrink:0">
             <i class="bi bi-arrow-repeat"></i> Cek Update
@@ -193,6 +193,26 @@ window.PageSettings = (() => {
     loadRecentLog(false)
     // Auto-refresh tiap 5 detik
     _startLogRefresh()
+    // Ambil release note dari GitHub (silent, tidak ganggu UI)
+    _loadReleaseNote()
+  }
+
+  async function _loadReleaseNote() {
+    try {
+      const res = await fetch(GITHUB_API_LATEST, {
+        headers: { Accept: 'application/vnd.github+json' },
+        signal: AbortSignal.timeout(8000)
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      const el   = document.getElementById('app-release-note')
+      if (!el) return
+      // Tampilkan nama release + body jika ada, fallback ke tech stack
+      const parts = []
+      if (data.name)  parts.push(data.name)
+      if (data.body)  parts.push(data.body)
+      if (parts.length) el.textContent = parts.join(' · ')
+    } catch (_) { /* silent — tidak perlu error handling */ }
   }
 
   // ── Log auto-refresh ────────────────────────────────────────
