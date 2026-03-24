@@ -124,6 +124,7 @@ contextBridge.exposeInMainWorld('mustlab', {
     openExternal:    (url)  => ipcRenderer.invoke('system:openExternal', url),
     getDataPath:     ()     => ipcRenderer.invoke('system:getDataPath'),
     log:             (level, msg, meta) => ipcRenderer.invoke('system:log', level, msg, meta),
+    setLogLevel:     (level) => ipcRenderer.invoke('system:setLogLevel', level),
     getLogPath:      ()     => ipcRenderer.invoke('system:getLogPath'),
     readLogFile:     (p)    => ipcRenderer.invoke('system:readLogFile', p),
     getmustlabDir: ()     => ipcRenderer.invoke('system:getmustlabDir'),

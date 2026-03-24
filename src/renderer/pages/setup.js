@@ -47,9 +47,9 @@ window.PageSetup = (() => {
         <div style="background:var(--green-bg);border:1px solid rgba(42,157,92,.25);border-radius:10px;padding:16px;text-align:center">
           <i class="bi bi-check-circle-fill" style="font-size:1.6rem;color:var(--green)"></i>
           <div class="fw7 mt6 mb4">Setup Selesai!</div>
-          <div class="xs muted mb10">Semua dependensi siap. TestPilot bisa digunakan.</div>
+          <div class="xs muted mb10">Semua dependensi siap. MustLab bisa digunakan.</div>
           <button class="btn btn-g" onclick="PageSetup.finishSetup()">
-            <i class="bi bi-arrow-right-circle-fill"></i> Mulai Gunakan TestPilot
+            <i class="bi bi-arrow-right-circle-fill"></i> Mulai Gunakan MustLab
           </button>
         </div>
       </div>
@@ -124,7 +124,7 @@ window.PageSetup = (() => {
                   ['2', 'Buka Device Manager', 'Android Studio → More Actions → Device Manager (atau menu Tools → Device Manager)', null],
                   ['3', 'Buat Virtual Device', 'Klik "+" → Pilih Pixel 6 → Next → Pilih API 31+ (Android 12) → Download jika belum → Next → Finish', null],
                   ['4', 'Jalankan Emulator', 'Klik tombol ▶ di Device Manager. Tunggu boot ~1-2 menit pertama kali', null],
-                  ['5', 'Cek di TestPilot', 'Emulator otomatis terdeteksi sebagai "emulator-5554" di panel Device', null],
+                  ['5', 'Cek di MustLab', 'Emulator otomatis terdeteksi sebagai "emulator-5554" di panel Device', null],
                 ].map(([n,t,d,u]) => `
                   <div style="display:flex;gap:8px;align-items:flex-start;
                     background:var(--surface2);border-radius:6px;padding:7px 10px">
@@ -243,7 +243,7 @@ window.PageSetup = (() => {
             <div>
               <div class="fw6 sm mb4">Boot simulator dan mulai testing</div>
               <div class="xs muted" style="line-height:1.75;margin-bottom:6px">
-                Buka Simulator dari Xcode atau terminal. TestPilot otomatis mendeteksi simulator yang Booted.
+                Buka Simulator dari Xcode atau terminal. MustLab otomatis mendeteksi simulator yang Booted.
               </div>
               <div style="background:#0d1117;border-radius:6px;padding:8px 12px;font-family:'Courier New',monospace;font-size:10px;line-height:1.9;color:#e6edf3">
                 <div><span style="color:#8b949e"># Boot simulator (atau buka dari Xcode menu)</span></div>
@@ -448,30 +448,37 @@ window.PageSetup = (() => {
   }
 
   // ── Dep steps ──────────────────────────────────────────────
-  function renderStep(step, status, pct = 0, msg = '') {
+  function renderStep(step, status, pct = 0, msg = '', foundPath = '') {
     const colors = { done:'var(--green)', active:'var(--blue)', error:'var(--red)', wait:'var(--text3)' }
     const icons  = { done:'check-circle-fill', active:'arrow-clockwise', error:'x-circle-fill', wait:'circle' }
     const bg     = { done:'var(--green-bg)', active:'var(--blue-bg)', error:'var(--red-bg)', wait:'var(--surface)' }
     const border = { done:'rgba(42,157,92,.3)', active:'rgba(59,126,237,.3)', error:'rgba(220,38,38,.3)', wait:'var(--border)' }
     const labels = { done:'Selesai', active: msg || 'Installing...', error:'Gagal', wait:'Menunggu' }
+
+    // Kalau sudah done dan ada path aktual, tampilkan path nyata — bukan desc statis
+    const descHtml = (status === 'done' && foundPath)
+      ? `<span style="opacity:.7">Ditemukan di: </span><code style="font-family:var(--font-mono,monospace);font-size:9px;
+          word-break:break-all;opacity:.85">${esc(foundPath)}</code>`
+      : esc(step.desc)
+
     return `
     <div id="setup-step-${step.key}" style="display:flex;gap:10px;padding:11px 13px;border-radius:9px;border:1px solid ${border[status]};background:${bg[status]};margin-bottom:7px;transition:all .2s">
       <div style="width:30px;height:30px;border-radius:7px;background:var(--surface3);display:flex;align-items:center;justify-content:center;font-size:16px;color:${colors[status]};flex-shrink:0;${status==='active'?'animation:spin .8s linear infinite':''}">
         <i class="bi bi-${icons[status]}"></i>
       </div>
-      <div style="flex:1">
-        <div class="fw6 sm">${step.title}</div>
-        <div class="xs muted">${step.desc}</div>
+      <div style="flex:1;min-width:0">
+        <div class="fw6 sm">${esc(step.title)}</div>
+        <div class="xs muted" style="line-height:1.6;word-break:break-word">${descHtml}</div>
         ${status==='active'?`<div class="pbar mt6"><div class="pbar-fill" id="pbar-${step.key}" style="width:${pct}%"></div></div>`:''}
       </div>
-      <div class="xs fw6" style="color:${colors[status]}">${labels[status]}</div>
+      <div class="xs fw6" style="color:${colors[status]};flex-shrink:0">${labels[status]}</div>
     </div>`
   }
 
-  function updateStep(key, status, pct = 0, msg = '') {
+  function updateStep(key, status, pct = 0, msg = '', foundPath = '') {
     const el   = document.getElementById(`setup-step-${key}`)
     const step = STEPS.find(s => s.key === key)
-    if (el && step) el.outerHTML = renderStep(step, status, pct, msg)
+    if (el && step) el.outerHTML = renderStep(step, status, pct, msg, foundPath)
   }
 
   async function checkDeps() {
@@ -479,7 +486,7 @@ window.PageSetup = (() => {
       _depsStatus = await window.api.setup.checkDeps()
       for (const [key, result] of Object.entries(_depsStatus)) {
         if (['adb','java','maestro'].includes(key)) {
-          updateStep(key, result.ok ? 'done' : 'wait')
+          updateStep(key, result.ok ? 'done' : 'wait', 0, '', result.ok ? (result.path || '') : '')
         }
       }
 

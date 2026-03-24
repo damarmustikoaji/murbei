@@ -35,3 +35,6 @@ environments.enc.json
 # resources/bin/ berisi binary — exclude tapi keep folder
 resources/bin/*
 !resources/bin/.gitkeep
+
+# collaboration
+.claude

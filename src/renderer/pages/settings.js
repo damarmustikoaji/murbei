@@ -144,13 +144,13 @@ window.PageSettings = (() => {
             <div style="font-size:11px;color:var(--text3)">
               <code id="log-path-display" style="font-family:var(--font-mono);font-size:10px;
                 background:var(--surface2);padding:1px 5px;border-radius:3px">
-                ~/Library/Application Support/mustlab/logs/
+                ~/Library/Application Support/MustLab/logs/
               </code>
             </div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
             <button class="btn btn-d btn-sm" id="log-level-btn"
-              onclick="PageSettings.toggleLogLevel()">
+              onclick="PageSettings.toggleLogLevel()" title="Debug ON: tampilkan semua log termasuk DEBUG. Debug OFF: hanya INFO/WARN/ERROR">
               <i class="bi bi-bug"></i> <span id="log-level-label">Debug Mode</span>
             </button>
             <button class="btn btn-d btn-sm" onclick="PageSettings.openLogFolder()">
@@ -159,27 +159,67 @@ window.PageSettings = (() => {
           </div>
         </div>
 
-        <div id="log-viewer" style="background:#0d1117;border-radius:7px;
-          font-family:var(--font-mono);font-size:10px;line-height:1.8;
-          padding:10px 12px;max-height:240px;overflow-y:auto;color:#e6edf3">
-          <div style="color:#8b949e;text-align:center;padding:12px">
-            Klik "Muat Log" untuk lihat 100 baris terakhir
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div id="log-status" style="font-size:10px;color:var(--text3)">
+            <i class="bi bi-arrow-clockwise" style="animation:spin .8s linear infinite"></i> Memuat...
+          </div>
+          <div style="display:flex;gap:5px">
+            <button class="btn btn-d btn-sm" id="log-scroll-btn" onclick="PageSettings.toggleLogScroll()"
+              title="Auto-scroll ke baris terbaru">
+              <i class="bi bi-arrow-down-circle"></i> <span id="log-scroll-label">Auto-scroll</span>
+            </button>
+            <button class="btn btn-d btn-sm" onclick="PageSettings.loadRecentLog(true)">
+              <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
           </div>
         </div>
-        <button class="btn btn-d btn-sm w100" style="margin-top:8px"
-          onclick="PageSettings.loadRecentLog()">
-          <i class="bi bi-arrow-clockwise"></i> Muat Log Terbaru
-        </button>
+
+        <div id="log-viewer" style="background:#0d1117;border-radius:7px;
+          font-family:var(--font-mono);font-size:10px;line-height:1.8;
+          padding:10px 12px;max-height:300px;overflow-y:auto;color:#e6edf3">
+        </div>
       </div>
     </div>`
 
-    // Load log path setelah render
+    // Load log path, kemudian langsung load log
     window.api.system.getLogPath().then(p => {
       window._logPath = p
       const el = document.getElementById('log-path-display')
       if (el) el.textContent = p.replace(/^\/Users\/[^/]+/, '~')
     }).catch(() => {})
+
     _updateLogLevelLabel()
+    // Auto-load log saat halaman dibuka
+    loadRecentLog(false)
+    // Auto-refresh tiap 5 detik
+    _startLogRefresh()
+  }
+
+  // ── Log auto-refresh ────────────────────────────────────────
+  let _logRefreshTimer = null
+  let _logAutoScroll   = true
+
+  function _startLogRefresh() {
+    _stopLogRefresh()
+    _logRefreshTimer = setInterval(() => {
+      if (document.getElementById('log-viewer')) {
+        loadRecentLog(false)
+      } else {
+        _stopLogRefresh()
+      }
+    }, 5000)
+  }
+
+  function _stopLogRefresh() {
+    if (_logRefreshTimer) { clearInterval(_logRefreshTimer); _logRefreshTimer = null }
+  }
+
+  function toggleLogScroll() {
+    _logAutoScroll = !_logAutoScroll
+    const lbl = document.getElementById('log-scroll-label')
+    const btn = document.getElementById('log-scroll-btn')
+    if (lbl) lbl.textContent = _logAutoScroll ? 'Auto-scroll' : 'Manual'
+    if (btn) btn.style.color = _logAutoScroll ? 'var(--blue)' : ''
   }
 
   function _updateLogLevelLabel() {
@@ -200,26 +240,46 @@ window.PageSettings = (() => {
     const current = localStorage.getItem('tp_log_level') || 'info'
     const next    = current === 'debug' ? 'info' : 'debug'
     localStorage.setItem('tp_log_level', next)
-    window.api.system.log('info', 'Log level changed to: ' + next)
-    toast(next === 'debug' ? '🐛 Debug mode ON — log lebih verbose' : '✅ Debug mode OFF')
+    // Beritahu main process untuk benar-benar ubah log level
+    await window.api.system.setLogLevel(next).catch(() => {})
+    toast(next === 'debug' ? 'Debug ON — semua log termasuk DEBUG ditampilkan' : 'Debug OFF — hanya INFO/WARN/ERROR')
     _updateLogLevelLabel()
+    // Reload viewer dengan filter baru
+    loadRecentLog(false)
   }
 
-  async function loadRecentLog() {
+  async function loadRecentLog(showToast = true) {
     const viewer = document.getElementById('log-viewer')
     if (!viewer) return
-    viewer.innerHTML = '<div style="color:#8b949e;text-align:center;padding:12px"><i class="bi bi-arrow-clockwise" style="animation:spin .7s linear infinite"></i> Memuat...</div>'
+
+    const isDebug = localStorage.getItem('tp_log_level') === 'debug'
+
     try {
       const logPath = window._logPath || await window.api.system.getLogPath().catch(() => '')
       const today   = new Date().toISOString().slice(0, 10)
       const logFile = logPath + '/app-' + today + '.log'
       const result  = await window.api.system.readLogFile(logFile).catch(() => null)
+
+      const statusEl = document.getElementById('log-status')
+
       if (!result) {
         viewer.innerHTML = '<div style="color:#8b949e;padding:12px;text-align:center">Belum ada log hari ini.<br><span style="font-size:9px;opacity:.6">' + esc(logFile) + '</span></div>'
+        if (statusEl) statusEl.innerHTML = '<i class="bi bi-dash-circle"></i> Tidak ada log hari ini'
         return
       }
-      const lines = result.split('\n').filter(Boolean).slice(-100)
+
+      // Filter berdasarkan debug mode
+      const allLines = result.split('\n').filter(Boolean)
+      const filtered = isDebug
+        ? allLines
+        : allLines.filter(line => {
+            try { const o = JSON.parse(line); return o.level !== 'debug' } catch { return true }
+          })
+      const lines = filtered.slice(-100)
+
       const colors = { error:'#ff7b72', warn:'#e3b341', info:'#79c0ff', debug:'#8b949e' }
+      const wasAtBottom = viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight < 40
+
       viewer.innerHTML = lines.map(line => {
         try {
           const o   = JSON.parse(line)
@@ -230,17 +290,29 @@ window.PageSettings = (() => {
           const meta = extras.length
             ? ' <span style="color:#8b949e;opacity:.7">' + esc(JSON.stringify(Object.fromEntries(extras)).slice(0, 80)) + '</span>'
             : ''
-          return '<div><span style="color:#8b949e">' + ts + '</span> ' +
-            '<span style="color:' + col + '">' + (o.level||'').toUpperCase().padEnd(5) + '</span> ' +
-            esc(o.message || '') + meta + '</div>'
+          return '<div><span style="color:#6e7681">' + ts + '</span> ' +
+            '<span style="color:' + col + ';font-weight:600">' + (o.level||'').toUpperCase().padEnd(5) + '</span> ' +
+            '<span style="color:#e6edf3">' + esc(o.message || '') + '</span>' + meta + '</div>'
         } catch {
           return '<div style="color:#8b949e">' + esc(line.slice(0, 120)) + '</div>'
         }
       }).join('')
-      viewer.scrollTop = viewer.scrollHeight
-      toast('✅ ' + lines.length + ' baris log dimuat')
+
+      // Scroll ke bawah kalau auto-scroll aktif atau user memang sudah di bawah
+      if (_logAutoScroll || wasAtBottom) viewer.scrollTop = viewer.scrollHeight
+
+      if (statusEl) {
+        const now = new Date().toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', second:'2-digit' })
+        const modeLabel = isDebug
+          ? '<span style="color:var(--blue)">DEBUG (semua level)</span>'
+          : '<span style="color:var(--text3)">INFO, WARN, ERROR</span>'
+        statusEl.innerHTML = `Diperbarui ${now} &nbsp;·&nbsp; ${lines.length} baris &nbsp;·&nbsp; Mode: ${modeLabel} &nbsp;·&nbsp; <span style="color:var(--text3)">refresh tiap 5 detik</span>`
+      }
+
+      if (showToast) toast(lines.length + ' baris log dimuat')
     } catch (err) {
-      viewer.innerHTML = '<div style="color:#ff7b72;padding:8px">Gagal baca log: ' + esc(err.message) + '</div>'
+      const viewer2 = document.getElementById('log-viewer')
+      if (viewer2) viewer2.innerHTML = '<div style="color:#ff7b72;padding:8px">Gagal baca log: ' + esc(err.message) + '</div>'
     }
   }
 
@@ -353,9 +425,8 @@ window.PageSettings = (() => {
 
   function _javaSource(p, tp) {
     if (!p || p === '—') return 'Mencari di ' + tp + '/java/ dan PATH system'
-    if (p === 'java (system)') return 'Java dari system PATH (bukan dari Setup Wizard — ini OK)'
     if (p.includes('.mustlab') || p.includes(tp)) return 'Temurin JRE 17 (didownload Setup Wizard → ' + tp + '/java/)'
-    return 'Java dari system PATH'
+    return 'Java dari system PATH (bukan dari Setup Wizard — ini OK)'
   }
 
   // ── Actions ─────────────────────────────────────────────────
@@ -458,5 +529,5 @@ window.PageSettings = (() => {
   }
 
   return { render, pickEvidenceDir, clearEvidenceDir, recheckDeps, checkUpdate, clearData,
-           openLogFolder, toggleLogLevel, loadRecentLog }
+           openLogFolder, toggleLogLevel, toggleLogScroll, loadRecentLog, stopLogRefresh: _stopLogRefresh }
 })()

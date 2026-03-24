@@ -158,11 +158,11 @@ function init() {
       INSERT INTO environments (id, name, base_url, is_active, vars_enc)
       VALUES (?, ?, ?, ?, ?)
     `).run(
-      'env-staging',
-      'Staging',
-      'stg envi',
+      'env-development',
+      'Development',
+      'devel envi',
       1,
-      JSON.stringify({ BASE_URL: 'https://staging.example.com', EMAIL: '', PASSWORD: '' })
+      JSON.stringify({ BASE_URL: 'https://devel.example.com', EMAIL: '', PASSWORD: '' })
     )
   }
 

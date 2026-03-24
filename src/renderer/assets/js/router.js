@@ -27,6 +27,11 @@
       if (window._inspectorRO) { window._inspectorRO.disconnect(); window._inspectorRO = null }
     }
 
+    // Stop log auto-refresh saat meninggalkan settings
+    if (AppState.currentPage === 'settings' && page !== 'settings') {
+      window.PageSettings?.stopLogRefresh?.()
+    }
+
     AppState.currentPage = page
 
     // Update sidebar active state

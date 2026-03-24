@@ -9,6 +9,7 @@ const { ipcMain, app, shell, dialog } = require('electron')
 const path   = require('path')
 const fs     = require('fs')
 const logger = require('../utils/logger')
+const { TESTPILOT_DIR } = require('../utils/process-utils')
 
 // Lazy load untuk hindari circular dependency saat startup
 const getDeviceManager  = () => require('../core/device-manager')
@@ -38,14 +39,11 @@ function registerAllHandlers(win) {
   handle('setup:checkDeps', async () => {
     const result = await getSetupManager().checkAll()
     // Log detail Maestro untuk debug
-    const fs   = require('fs')
-    const path = require('path')
-    const os   = require('os')
-    const binDir = path.join(os.homedir(), '.testpilot', 'bin')
+    const binDir = path.join(TESTPILOT_DIR, 'bin')
     if (fs.existsSync(binDir)) {
       const { spawnAsync } = require('../utils/process-utils')
       const { stdout } = await spawnAsync('find', [binDir, '-type', 'f'], { timeout: 3000 }).catch(() => ({ stdout: '' }))
-      logger.info(`~/.testpilot/bin contents:\n${stdout}`)
+      logger.info(`${TESTPILOT_DIR}/bin contents:\n${stdout}`)
     }
     return result
   })
@@ -67,11 +65,8 @@ function registerAllHandlers(win) {
 
   // Fix Maestro permission — panggil dari UI jika maestro ada tapi tidak executable
   handle('setup:fixMaestro', async () => {
-    const fs   = require('fs')
-    const path = require('path')
-    const os   = require('os')
     const { spawnAsync } = require('../utils/process-utils')
-    const binDir = path.join(os.homedir(), '.testpilot', 'bin')
+    const binDir = path.join(TESTPILOT_DIR, 'bin')
     try {
       await spawnAsync('find', [binDir, '-type', 'f', '-exec', 'chmod', '+x', '{}', ';'], { timeout: 10000 })
       logger.info('Maestro permissions fixed')
@@ -283,6 +278,13 @@ function registerAllHandlers(win) {
     logger[safeLevel]('[renderer] ' + message, meta || {})
   })
 
+  handle('system:setLogLevel', async (_, level) => {
+    const safe = ['debug','info','warn','error'].includes(level) ? level : 'info'
+    logger.level = safe
+    logger.info(`Log level changed to: ${safe}`)
+    return { ok: true, level: safe }
+  })
+
   handle('system:getLogPath', async () => {
     return logger.getLogDir()
   })
@@ -300,21 +302,14 @@ function registerAllHandlers(win) {
     return fs.readFileSync(resolved, 'utf8')
   })
 
-  handle('system:getTestpilotDir', async () => {
-    const os   = require('os')
-    const path = require('path')
-    return path.join(os.homedir(), '.testpilot')
-  })
+  handle('system:getmustlabDir', async () => TESTPILOT_DIR)
 
   handle('system:clearData', async (_, type) => {
-    const fs   = require('fs')
-    const path = require('path')
-    const os   = require('os')
-    const userData      = app.getPath('userData')
-    const testpilotDir  = path.join(os.homedir(), '.testpilot')
+    const userData   = app.getPath('userData')
+    const mustlabDir = TESTPILOT_DIR
 
     if (type === 'db') {
-      const dbPath = path.join(userData, 'data', 'testpilot.db')
+      const dbPath = path.join(userData, 'data', 'mustlab.db')
       if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath)
       // Relaunch otomatis setelah hapus DB
       setTimeout(() => { app.relaunch(); app.exit(0) }, 500)
@@ -322,22 +317,23 @@ function registerAllHandlers(win) {
     }
 
     if (type === 'evidence') {
-      const cacheDir = path.join(testpilotDir, 'cache')
+      const cacheDir = path.join(mustlabDir, 'cache')
       if (fs.existsSync(cacheDir)) fs.rmSync(cacheDir, { recursive: true, force: true })
       return { ok: true, msg: 'Cache dihapus' }
     }
 
     if (type === 'binaries') {
-      if (fs.existsSync(testpilotDir)) fs.rmSync(testpilotDir, { recursive: true, force: true })
+      if (fs.existsSync(mustlabDir)) fs.rmSync(mustlabDir, { recursive: true, force: true })
       // Relaunch agar Setup Wizard otomatis tampil
       setTimeout(() => { app.relaunch(); app.exit(0) }, 500)
       return { ok: true, msg: 'Binary dihapus. Memulai ulang ke Setup Wizard...' }
     }
 
     if (type === 'all') {
-      if (fs.existsSync(testpilotDir)) fs.rmSync(testpilotDir, { recursive: true, force: true })
-      const dataDir = path.join(userData, 'data')
-      if (fs.existsSync(dataDir)) fs.rmSync(dataDir, { recursive: true, force: true })
+      // Hapus ~/.mustlab/ (binary: ADB, Java, Maestro, cache, logs)
+      if (fs.existsSync(mustlabDir)) fs.rmSync(mustlabDir, { recursive: true, force: true })
+      // Hapus userData (DB + evidence default)
+      if (fs.existsSync(userData)) fs.rmSync(userData, { recursive: true, force: true })
       // Relaunch — app akan mulai fresh seperti install baru
       setTimeout(() => { app.relaunch(); app.exit(0) }, 500)
       return { ok: true, msg: 'Semua data dihapus. Memulai ulang...' }

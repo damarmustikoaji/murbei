@@ -193,10 +193,16 @@ class SetupManager extends EventEmitter {
       const ok = await isBinaryAvailable(javaPath)
       return { ok, path: javaPath }
     }
-    // Cek system Java
+    // Cek system Java — resolve path aktual via 'which'
     return new Promise(resolve => {
       execFile('java', ['-version'], { timeout: 3000 }, (err, stdout, stderr) => {
-        resolve({ ok: !err, path: 'java (system)', version: stderr?.split('\n')[0] })
+        if (err) return resolve({ ok: false, path: 'java', version: null })
+        const version = stderr?.split('\n')[0] || ''
+        // Resolve path binary aktual
+        execFile('which', ['java'], { timeout: 2000 }, (wErr, wOut) => {
+          const actualPath = (!wErr && wOut.trim()) ? wOut.trim() : 'java (system)'
+          resolve({ ok: true, path: actualPath, version })
+        })
       })
     })
   }
